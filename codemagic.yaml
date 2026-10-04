@@ -1,0 +1,27 @@
+workflows:
+  meloplayer-ios:
+    name: MeloPlayer iOS - XcodeGen
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          brew install xcodegen || brew upgrade xcodegen || true
+          xcodegen --version
+      - name: Generate Xcode project
+        script: |
+          xcodegen generate --spec project.yml
+          ls -la
+      - name: Build unsigned simulator test
+        script: |
+          xcodebuild \
+            -project MeloPlayer.xcodeproj \
+            -scheme MeloPlayer \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+    artifacts:
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/Products/**/*.app
