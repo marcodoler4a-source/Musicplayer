@@ -141,7 +141,7 @@ struct NowPlayingView: View {
             }
             Spacer()
             Button { p.previous() } label: {
-                Image(systemName: "backward.end.fill")
+                Image(systemName: "backward.fill")
                     .font(.title2)
             }
             Spacer()
@@ -156,7 +156,7 @@ struct NowPlayingView: View {
             }
             Spacer()
             Button { p.next() } label: {
-                Image(systemName: "forward.end.fill")
+                Image(systemName: "forward.fill")
                     .font(.title2)
             }
             Spacer()
@@ -171,26 +171,27 @@ struct NowPlayingView: View {
     }
 
     private var utilityRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 22) {
             Button { showLyricSearch = true } label: {
-                Label("Search Lyrics", systemImage: "quote.bubble")
-                    .font(.caption.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 44)
+                Image(systemName: "quote.bubble")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 48, height: 48)
+                    .background(.white.opacity(0.10), in: Circle())
             }
-            .buttonStyle(.bordered)
+            .accessibilityLabel("Search Lyrics")
             .disabled(p.current == nil)
 
             Button { showMusicInfoSearch = true } label: {
-                Label("Music Info", systemImage: "music.note.list")
-                    .font(.caption.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 44)
+                Image(systemName: "music.note.list")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 48, height: 48)
+                    .background(.white.opacity(0.10), in: Circle())
             }
-            .buttonStyle(.bordered)
+            .accessibilityLabel("Music Info")
             .disabled(p.current == nil)
         }
-        .foregroundStyle(.white.opacity(0.9))
+        .foregroundStyle(.white.opacity(0.92))
+        .frame(maxWidth: .infinity)
         .padding(.bottom, 18)
     }
 
@@ -220,15 +221,19 @@ struct NowPlayingView: View {
 
                 HStack(spacing: 10) {
                     Button { showLyricSearch = true } label: {
-                        Label("Search synced", systemImage: "magnifyingglass")
+                        Image(systemName: "magnifyingglass")
+                            .frame(width: 38, height: 30)
                     }
+                    .accessibilityLabel("Search Synced Lyrics")
                     .buttonStyle(.borderedProminent)
                     .tint(.white)
                     .foregroundStyle(.black)
 
                     Button { showLRCImporter = true } label: {
-                        Label("LRC", systemImage: "doc")
+                        Image(systemName: "doc")
+                            .frame(width: 38, height: 30)
                     }
+                    .accessibilityLabel("Import LRC")
                     .buttonStyle(.bordered)
                 }
                 .font(.caption.weight(.bold))

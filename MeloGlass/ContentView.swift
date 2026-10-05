@@ -9,6 +9,7 @@ struct ContentView: View {
     @State private var showSearch = false
     @State private var musicInfoTarget: Track?
     @State private var tab = 0
+    @State private var librarySection = "Songs"
 
     @AppStorage("compactRows") private var compactRows = false
     @AppStorage("showArtwork") private var showArtwork = true
@@ -75,7 +76,9 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $importing,
-            allowedContentTypes: [.audio],
+            // Select the audio file and its matching .lrc file together.
+            // Example: "My Song.mp3" + "My Song.lrc".
+            allowedContentTypes: [.audio, .plainText],
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result {
@@ -101,17 +104,28 @@ struct ContentView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         header("Library", subtitle: "Your music, beautifully local.")
+
+                        Picker("Library View", selection: $librarySection) {
+                            Text("Songs").tag("Songs")
+                            Text("Artists").tag("Artists")
+                            Text("Albums").tag("Albums")
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+
                         if p.tracks.isEmpty {
                             empty(
                                 "music.note.list",
                                 "Import your music",
                                 "Add MP3, M4A, AAC, WAV and other iOS-supported audio files."
                             )
+                        } else if librarySection == "Artists" {
+                            artistLibrary
+                        } else if librarySection == "Albums" {
+                            albumLibrary
                         } else {
                             LazyVStack(spacing: compactRows ? 5 : 10) {
-                                ForEach(sortedTracks) { track in
-                                    trackRow(track)
-                                }
+                                ForEach(sortedTracks) { track in trackRow(track) }
                             }
                             .padding(.horizontal)
                         }
@@ -122,6 +136,36 @@ struct ContentView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
+    }
+
+    private var artistLibrary: some View {
+        let groups = Dictionary(grouping: sortedTracks) { track in
+            track.artist.isEmpty ? "Unknown Artist" : track.artist
+        }
+        return LazyVStack(spacing: 18) {
+            ForEach(groups.keys.sorted(), id: \.self) { artist in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(artist).font(.title3.bold()).padding(.horizontal, 4)
+                    ForEach(groups[artist] ?? []) { track in trackRow(track) }
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private var albumLibrary: some View {
+        let groups = Dictionary(grouping: sortedTracks) { track in
+            track.album.isEmpty ? "Unknown Album" : track.album
+        }
+        return LazyVStack(spacing: 18) {
+            ForEach(groups.keys.sorted(), id: \.self) { album in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(album).font(.title3.bold()).padding(.horizontal, 4)
+                    ForEach(groups[album] ?? []) { track in trackRow(track) }
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 
     private var favorites: some View {
@@ -248,6 +292,24 @@ struct ContentView: View {
         .padding(compactRows ? 6 : 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
         .contentShape(Rectangle())
+        .contextMenu {
+            Button {
+                p.toggleFavorite(t)
+            } label: {
+                Label(p.isFavorite(t) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(t) ? "heart.slash" : "heart")
+            }
+            Button {
+                musicInfoTarget = t
+                showSearch = true
+            } label: {
+                Label("Search Music Info", systemImage: "magnifyingglass")
+            }
+            Button(role: .destructive) {
+                p.remove(t)
+            } label: {
+                Label("Remove from Library", systemImage: "trash")
+            }
+        }
     }
 }
 
