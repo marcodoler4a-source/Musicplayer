@@ -23,3 +23,6 @@ The initial version opens LRCLIB/MusicBrainz searches from inside the app. This 
 
 ## App icon
 The project includes the blue glass music-note icon in `MeloGlass/Assets.xcassets/AppIcon.appiconset`. Xcode/GitHub Actions uses it as the installed iPhone app icon.
+
+## V11 online music info
+Use the ••• menu beside any library song and choose **Search Music Info Online**. MeloGlass searches MusicBrainz for title, artist, album, release date, genre, and track number, then can apply the selected result and fetch cover artwork from the Cover Art Archive.
