@@ -26,3 +26,8 @@ The project includes the blue glass music-note icon in `MeloGlass/Assets.xcasset
 
 ## V11 online music info
 Use the ••• menu beside any library song and choose **Search Music Info Online**. MeloGlass searches MusicBrainz for title, artist, album, release date, genre, and track number, then can apply the selected result and fetch cover artwork from the Cover Art Archive.
+
+## V12 update
+- Online music-info search results now show album cover artwork from Cover Art Archive when available.
+- Applying a result uses both metadata and the selected result's cover artwork.
+- Now Playing has a dedicated Music Info button directly beside Search Lyrics.
