@@ -1,0 +1,48 @@
+workflows:
+  meloplayer-altstore:
+    name: MeloPlayer iPhone IPA - AltStore
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          brew install xcodegen || brew upgrade xcodegen || true
+          xcodegen --version
+
+      - name: Generate Xcode project
+        script: |
+          xcodegen generate --spec project.yml
+          test -d MeloPlayer.xcodeproj
+
+      - name: Build unsigned iPhone app
+        script: |
+          set -e
+          rm -rf build Payload MeloPlayer-AltStore.ipa
+          xcodebuild \
+            -project MeloPlayer.xcodeproj \
+            -scheme MeloPlayer \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package AltStore IPA
+        script: |
+          set -e
+          APP_PATH="build/Build/Products/Release-iphoneos/MeloPlayer.app"
+          test -d "$APP_PATH"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/MeloPlayer.app
+          /usr/bin/zip -qry MeloPlayer-AltStore.ipa Payload
+          test -f MeloPlayer-AltStore.ipa
+          ls -lh MeloPlayer-AltStore.ipa
+
+    artifacts:
+      - MeloPlayer-AltStore.ipa
+      - build/Build/Products/Release-iphoneos/MeloPlayer.app
