@@ -1,0 +1,27 @@
+name: MeloGlass
+options:
+  bundleIdPrefix: com.meloglass
+  deploymentTarget:
+    iOS: '16.0'
+targets:
+  MeloGlass:
+    type: application
+    platform: iOS
+    sources: [MeloGlass]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.meloglass.player
+        PRODUCT_NAME: MeloGlass
+        SWIFT_VERSION: 5.0
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: MeloGlass/Info.plist
+        CODE_SIGNING_ALLOWED: NO
+    info:
+      path: MeloGlass/Info.plist
+      properties:
+        CFBundleDisplayName: MeloGlass
+        UIBackgroundModes: [audio]
+        UISupportsDocumentBrowser: false
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        NSAppleMusicUsageDescription: MeloGlass can optionally access your music library.
