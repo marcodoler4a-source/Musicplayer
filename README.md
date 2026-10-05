@@ -31,3 +31,8 @@ Use the ••• menu beside any library song and choose **Search Music Info On
 - Online music-info search results now show album cover artwork from Cover Art Archive when available.
 - Applying a result uses both metadata and the selected result's cover artwork.
 - Now Playing has a dedicated Music Info button directly beside Search Lyrics.
+
+## V13 additions
+- Add/replace album cover art manually from the iPhone Photos library using the photo+ button beside Music Info on Now Playing.
+- Broader music-info search combines MusicBrainz and Apple's public search catalog, with cover art from Cover Art Archive or catalog artwork when available.
+- Broader synced-lyrics matching tries exact title/artist, combined keyword search, and cleaned title-only fallback through LRCLIB.
