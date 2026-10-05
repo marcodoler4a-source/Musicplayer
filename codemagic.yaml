@@ -1,0 +1,42 @@
+workflows:
+  meloglass-sidestore:
+    name: MeloGlass iPhone IPA - SideStore
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          brew install xcodegen
+      - name: Generate Xcode project
+        script: |
+          xcodegen generate
+      - name: Build unsigned iOS app
+        script: |
+          set -e
+          rm -rf build Payload
+          xcodebuild \
+            -project MeloGlass.xcodeproj \
+            -scheme MeloGlass \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+      - name: Package IPA for SideStore
+        script: |
+          set -e
+          APP_PATH="build/Build/Products/Release-iphoneos/MeloGlass.app"
+          test -d "$APP_PATH"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/MeloGlass.app
+          /usr/bin/zip -qry MeloGlass-SideStore.ipa Payload
+          /usr/bin/zip -qry MeloGlass.app.zip "$APP_PATH"
+    artifacts:
+      - MeloGlass-SideStore.ipa
+      - MeloGlass.app.zip
+      - build/Build/Products/Release-iphoneos/MeloGlass.app
