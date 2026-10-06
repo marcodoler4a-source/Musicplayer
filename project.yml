@@ -1,0 +1,33 @@
+name: MeloGlass
+options:
+  bundleIdPrefix: com.meloglass
+  deploymentTarget:
+    iOS: '16.0'
+targets:
+  MeloGlass:
+    type: application
+    platform: iOS
+    sources:
+      - path: MeloGlass
+        excludes:
+          - LaunchScreen.storyboard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.meloglass.player
+        PRODUCT_NAME: MeloGlass
+        SWIFT_VERSION: 5.0
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: MeloGlass/Info.plist
+        CODE_SIGNING_ALLOWED: NO
+        TARGETED_DEVICE_FAMILY: 1
+    info:
+      path: MeloGlass/Info.plist
+      properties:
+        CFBundleDisplayName: Musix
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIBackgroundModes: [audio]
+        UISupportsDocumentBrowser: false
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        NSAppleMusicUsageDescription: Musix can optionally access your music library.
