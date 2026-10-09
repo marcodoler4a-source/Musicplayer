@@ -233,14 +233,37 @@ import ImageIO
     }
 
     private var audioObservers: [NSObjectProtocol] = []
+    private var resumeAfterInterruption = false
     private func observeAudioInterruptions() {
         let center = NotificationCenter.default
         audioObservers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance(), queue: .main) { [weak self] notification in
             Task { @MainActor [weak self] in
                 guard let self, let value = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                       let type = AVAudioSession.InterruptionType(rawValue: value) else { return }
-                if type == .began { self.diagnosticsMessage = "Audio interrupted"; self.playerNode.pause(); self.transitionNode.pause(); self.isPlaying = false }
-                else { self.diagnosticsMessage = "Interruption ended — tap Play to resume" }
+                if type == .began {
+                    self.resumeAfterInterruption = self.isPlaying
+                    self.diagnosticsMessage = "Audio interrupted"
+                    self.playerNode.pause()
+                    self.transitionNode.pause()
+                    self.isPlaying = false
+                } else {
+                    let optionsRaw = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                    let mayResume = AVAudioSession.InterruptionOptions(rawValue: optionsRaw).contains(.shouldResume)
+                    if self.resumeAfterInterruption && mayResume {
+                        self.configureAudio()
+                        if !self.engine.isRunning { try? self.engine.start() }
+                        if self.engine.isRunning {
+                            self.playerNode.play()
+                            if self.transitionStarted { self.transitionNode.play() }
+                            self.isPlaying = true
+                            self.diagnosticsMessage = "Playback resumed"
+                            self.publish()
+                        }
+                    } else {
+                        self.diagnosticsMessage = "Audio interruption ended"
+                    }
+                    self.resumeAfterInterruption = false
+                }
             }
         })
         audioObservers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
@@ -533,7 +556,7 @@ import ImageIO
 
     func toggle() {
         guard audioFile != nil else { if let t = current ?? tracks.first { play(t) }; return }
-        if isPlaying { playerNode.pause(); transitionNode.pause(); isPlaying = false }
+        if isPlaying { resumeAfterInterruption = false; playerNode.pause(); transitionNode.pause(); isPlaying = false }
         else { if !engine.isRunning { configureAudio(); try? engine.start() }; playerNode.play(); if transitionStarted { transitionNode.play() }; isPlaying = true }
         publish()
     }
@@ -681,7 +704,7 @@ import ImageIO
 
     private func tick() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: batterySaver ? 0.5 : 0.25, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: batterySaver ? 0.75 : 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let render = self.playerNode.lastRenderTime, let nodeTime = self.playerNode.playerTime(forNodeTime: render), let file = self.audioFile else { return }
                 self.time = min(self.duration, Double(self.startFrame + AVAudioFramePosition(nodeTime.sampleTime)) / file.processingFormat.sampleRate)
@@ -787,7 +810,15 @@ import ImageIO
         publish()
     }
 
-    private func configureAudio() { try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.allowAirPlay]); try? AVAudioSession.sharedInstance().setActive(true) }
+    private func configureAudio() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.allowAirPlay])
+            try session.setActive(true)
+        } catch {
+            diagnosticsMessage = "Audio session: \(error.localizedDescription)"
+        }
+    }
     private func configureRemote() { let c = MPRemoteCommandCenter.shared(); c.playCommand.addTarget { [weak self] _ in Task { @MainActor in self?.toggle() }; return .success }; c.pauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.toggle() }; return .success }; c.nextTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.next() }; return .success }; c.previousTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.previous() }; return .success } }
     private func publish() { guard let t = current else { return }; var n: [String: Any] = [MPMediaItemPropertyTitle: t.title, MPMediaItemPropertyArtist: t.artist, MPMediaItemPropertyAlbumTitle: t.album, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: time, MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? speed : 0]; if let im = cachedArtwork(for: t, maxDimension: 700) { n[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: im.size) { _ in im } }; MPNowPlayingInfoCenter.default().nowPlayingInfo = n }
 }

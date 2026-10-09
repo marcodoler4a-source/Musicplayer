@@ -457,7 +457,16 @@ struct ContentView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(title).font(.largeTitle.bold())
+                    Text(title)
+                        .font(.largeTitle.bold())
+                        .overlay(alignment: .topLeading) {
+                            if title == "Library" {
+                                MusixLibraryPortrait()
+                                    .offset(x: 105, y: -30)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                     if let count = count {
                         Text("\(count)")
                             .font(.caption.weight(.semibold))
@@ -763,7 +772,8 @@ struct LibraryMusicSearchView: View {
 
     var body: some View {
         NavigationStack {
-            List(results) { track in
+            VStack(spacing: 0) {
+                    List(results) { track in
                 Button {
                     p.play(track, queue: results)
                     dismiss()
@@ -780,7 +790,8 @@ struct LibraryMusicSearchView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search music files")
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your songs")
             .navigationTitle("Search Music")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
@@ -1037,5 +1048,30 @@ struct MusixArtistCollectionView: View {
         }
         .sheet(isPresented: $editingCover) { MusixArtistCoverEditor(artist: artist) }
         .fullScreenCover(isPresented: $showPlayer) { NowPlayingView().environmentObject(p) }
+    }
+}
+
+
+// A small floating portrait above the final letter of the Library heading.
+// The original photo is used without face alterations.
+private struct MusixLibraryPortrait: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var floating = false
+
+    var body: some View {
+        Image("LibraryPortrait")
+            .resizable()
+            .scaledToFill()
+            .frame(width: 34, height: 34)
+            .clipShape(Circle())
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.65), lineWidth: 1))
+            .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+            .offset(y: floating ? -3 : 0)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.9).repeatForever(autoreverses: true)) {
+                    floating = true
+                }
+            }
     }
 }
