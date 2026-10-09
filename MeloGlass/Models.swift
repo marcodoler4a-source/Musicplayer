@@ -29,3 +29,5 @@ enum LibrarySort: String, CaseIterable, Identifiable {
     case title = "Title", artist = "Artist", album = "Album", recentlyAdded = "Recently Added"
     var id: String { rawValue }
 }
+
+struct MusixPlaylist: Codable, Identifiable { var id: UUID; var name: String; var trackIDs: [UUID] }

@@ -20,9 +20,58 @@ import UIKit
     @Published var lyricsError: String?
     @Published var eqPreset: String = UserDefaults.standard.string(forKey: "eqPreset") ?? "Off"
     @Published var userError: String?
+    @Published var playlists: [MusixPlaylist] = []
+    @Published var playCounts: [UUID: Int] = [:]
+    @Published var stopAfterCurrent = false
+    @Published var queueRevision = 0
+    @Published var audioLevels: [CGFloat] = Array(repeating: 0.08, count: 20)
+    @Published var miniPlayerExpanded = UserDefaults.standard.bool(forKey: "musixExpandedMini")
+    func setMiniExpanded(_ value: Bool) { miniPlayerExpanded = value; UserDefaults.standard.set(value, forKey: "musixExpandedMini") }
+    private var extraQueue: [UUID] = []
+    private var extrasURL: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MusixExtras.json") }
+    private struct Extras: Codable { var playlists: [MusixPlaylist]; var counts: [UUID: Int]; var queuedIDs: [UUID]? }
+    private func loadExtras() {
+        guard let data = try? Data(contentsOf: extrasURL), let value = try? JSONDecoder().decode(Extras.self, from: data) else { return }
+        playlists = value.playlists; playCounts = value.counts; extraQueue = (value.queuedIDs ?? []).filter { id in tracks.contains(where: { $0.id == id }) }; queueRevision += 1; extraQueue = (value.queuedIDs ?? []).filter { id in tracks.contains(where: { $0.id == id }) }
+    }
+    private func saveExtras() {
+        let value = Extras(playlists: playlists, counts: playCounts, queuedIDs: extraQueue)
+        let destination = extrasURL
+        persistenceQueue.async { if let data = try? JSONEncoder().encode(value) { try? data.write(to: destination, options: .atomic) } }
+    }
+    func createPlaylist(_ name: String) { let n = name.trimmingCharacters(in: .whitespacesAndNewlines); guard !n.isEmpty else { return }; playlists.append(MusixPlaylist(id: UUID(), name: n, trackIDs: [])); saveExtras() }
+    func deletePlaylist(_ id: UUID) { playlists.removeAll { $0.id == id }; saveExtras() }
+    func addToPlaylist(_ track: Track, playlist id: UUID) { guard let i = playlists.firstIndex(where: { $0.id == id }) else { return }; if !playlists[i].trackIDs.contains(track.id) { playlists[i].trackIDs.append(track.id); saveExtras() } }
+    func removeFromPlaylist(_ track: Track, playlist id: UUID) { guard let i = playlists.firstIndex(where: { $0.id == id }) else { return }; playlists[i].trackIDs.removeAll { $0 == track.id }; saveExtras() }
+    func renamePlaylist(_ id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let i = playlists.firstIndex(where: { $0.id == id }) else { return }
+        playlists[i].name = trimmed
+        saveExtras()
+    }
+    func movePlaylistTracks(_ id: UUID, from offsets: IndexSet, to destination: Int) {
+        guard let i = playlists.firstIndex(where: { $0.id == id }) else { return }
+        playlists[i].trackIDs.move(fromOffsets: offsets, toOffset: destination)
+        saveExtras()
+    }
+    func playlistTracks(_ playlist: MusixPlaylist) -> [Track] { playlist.trackIDs.compactMap { id in tracks.first { $0.id == id } } }
+    func enqueue(_ track: Track, next: Bool) { if next { extraQueue.insert(track.id, at: 0) } else { extraQueue.append(track.id) }; queueRevision += 1; saveExtras() }
+    func removeQueued(at index: Int) { guard extraQueue.indices.contains(index) else { return }; extraQueue.remove(at: index); queueRevision += 1; saveExtras(); saveExtras() }
+    func moveQueued(from: IndexSet, to: Int) { extraQueue.move(fromOffsets: from, toOffset: to); queueRevision += 1; saveExtras(); saveExtras() }
+    var upcomingTracks: [Track] { extraQueue.compactMap { id in tracks.first { $0.id == id } } }
+
 
     private let engine = AVAudioEngine()
-    private let playerNode = AVAudioPlayerNode()
+    private var playerNode = AVAudioPlayerNode()
+    private var transitionNode = AVAudioPlayerNode()
+    private var transitionFile: AVAudioFile?
+    private var transitionTrack: Track?
+    private var transitionStarted = false
+    private var transitionStart: Date?
+    private var transitionStartFrame: AVAudioFramePosition = 0
+    private var transitionElapsed: Double = 0
+    @Published var crossfadeSeconds: Double = UserDefaults.standard.double(forKey: "musixCrossfadeSeconds")
+    func setCrossfade(_ seconds: Double) { crossfadeSeconds = min(12, max(0, seconds)); UserDefaults.standard.set(crossfadeSeconds, forKey: "musixCrossfadeSeconds"); cancelTransition() }
     private let equalizer = AVAudioUnitEQ(numberOfBands: 6)
     private let timePitch = AVAudioUnitTimePitch()
     private var audioFile: AVAudioFile?
@@ -40,6 +89,7 @@ import UIKit
         configureRemote()
         applyEQPreset(eqPreset)
         loadLibrary()
+        loadExtras()
         Task { await recoverStoredAudioFiles() }
     }
 
@@ -134,12 +184,30 @@ import UIKit
 
     private func configureEngine() {
         engine.attach(playerNode)
+        engine.attach(transitionNode)
         engine.attach(equalizer)
         engine.attach(timePitch)
         engine.connect(playerNode, to: equalizer, format: nil)
+        engine.connect(transitionNode, to: equalizer, format: nil)
         engine.connect(equalizer, to: timePitch, format: nil)
         engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
         timePitch.rate = speed
+        // Read-only post-effects audio meter. Never change the existing audio routing.
+        let mixer = engine.mainMixerNode
+        mixer.installTap(onBus: 0, bufferSize: 1024, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+            guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
+            let count = Int(buffer.frameLength)
+            let width = max(1, count / 20)
+            let levels: [CGFloat] = (0..<20).map { index in
+                let start = index * width
+                let end = min(count, start + width)
+                guard start < end else { return 0.04 }
+                var energy: Float = 0
+                for i in start..<end { energy += samples[i] * samples[i] }
+                return CGFloat(min(1, max(0.04, sqrt(energy / Float(end - start)) * 3)))
+            }
+            Task { @MainActor [weak self] in self?.audioLevels = levels }
+        }
         try? engine.start()
     }
 
@@ -323,9 +391,12 @@ import UIKit
     }
 
     func play(_ t: Track, queue: [Track]? = nil) {
+        cancelTransition()
         if let queue { queueIDs = queue.map(\.id) }
         if queueIDs.isEmpty { queueIDs = tracks.map(\.id) }
         current = t
+        playCounts[t.id, default: 0] += 1
+        saveExtras()
         do {
             // AVAudioFile exposes a decoded processing format for compressed files.
             // Do not force a client PCM format here: doing so can make valid M4A/AAC
@@ -356,7 +427,8 @@ import UIKit
             Task { @MainActor in
                 guard let self, self.completionToken == token else { return }
                 self.time = self.duration
-                self.next()
+                if self.transitionStarted { return }
+                self.advanceAfterCompletion()
             }
         }
         if !engine.isRunning { try? engine.start() }
@@ -365,19 +437,29 @@ import UIKit
 
     func toggle() {
         guard audioFile != nil else { if let t = current ?? tracks.first { play(t) }; return }
-        if playerNode.isPlaying { playerNode.pause(); isPlaying = false }
-        else { if !engine.isRunning { try? engine.start() }; playerNode.play(); isPlaying = true }
+        if isPlaying { playerNode.pause(); transitionNode.pause(); isPlaying = false }
+        else { if !engine.isRunning { try? engine.start() }; playerNode.play(); if transitionStarted { transitionNode.play() }; isPlaying = true }
         publish()
     }
 
-    func seek(_ v: Double) { time = v; schedule(from: v, autoplay: isPlaying); publish() }
+    func seek(_ v: Double) { cancelTransition(); time = v; schedule(from: v, autoplay: isPlaying); publish() }
 
     func activeQueue() -> [Track] {
         let resolved = queueIDs.compactMap { id in tracks.first(where: { $0.id == id }) }
         return resolved.isEmpty ? tracks : resolved
     }
 
+    private func advanceAfterCompletion() {
+        if stopAfterCurrent { stopAfterCurrent = false; cancelTransition(); playerNode.stop(); isPlaying = false; time = duration; publish(); return }
+        next()
+    }
+
     func next() {
+        cancelTransition()
+        if !extraQueue.isEmpty {
+            let id = extraQueue.removeFirst(); queueRevision += 1; saveExtras(); saveExtras()
+            if let track = tracks.first(where: { $0.id == id }) { play(track); return }
+        }
         let queue = activeQueue(); guard !queue.isEmpty else { return }
         if repeatMode == .one, let c = current { play(c, queue: queue); return }
         if shuffle {
@@ -393,6 +475,7 @@ import UIKit
     }
 
     func previous() {
+        cancelTransition()
         if time > 3 { seek(0); return }
         let queue = activeQueue(); guard !queue.isEmpty else { return }
         guard let currentID = current?.id, let index = queue.firstIndex(where: { $0.id == currentID }) else {
@@ -495,11 +578,184 @@ import UIKit
             Task { @MainActor in
                 guard let self, let render = self.playerNode.lastRenderTime, let nodeTime = self.playerNode.playerTime(forNodeTime: render), let file = self.audioFile else { return }
                 self.time = min(self.duration, Double(self.startFrame + AVAudioFramePosition(nodeTime.sampleTime)) / file.processingFormat.sampleRate)
+                self.updateTransition()
             }
         }
+    }
+
+
+    // A second decoder/player is connected to the same EQ chain. The incoming
+    // track starts before the outgoing one ends; both nodes overlap during fade.
+    // For zero crossfade, it is preloaded and starts at the end boundary.
+    private func nextTransitionTrack() -> Track? {
+        if stopAfterCurrent { return nil }
+        if let id = extraQueue.first { return tracks.first { $0.id == id } }
+        let queue = activeQueue()
+        if repeatMode == .one { return current }
+        if shuffle { return nil } // random choice is resolved by the normal next() path
+        guard let id = current?.id, let i = queue.firstIndex(where: { $0.id == id }) else { return nil }
+        if i + 1 < queue.count { return queue[i + 1] }
+        return repeatMode == .all ? queue.first : nil
+    }
+
+    private func cancelTransition() {
+        transitionNode.stop()
+        transitionNode.volume = 1
+        playerNode.volume = 1
+        transitionFile = nil
+        transitionTrack = nil
+        transitionStarted = false
+        transitionStart = nil
+        transitionElapsed = 0
+    }
+
+    private func updateTransition() {
+        guard isPlaying, duration > 0 else { return }
+        let remaining = max(0, duration - time)
+        let fade = min(crossfadeSeconds, duration * 0.45)
+        // Decode the next file ahead of the boundary on a second player node.
+        if transitionFile == nil, remaining <= max(3, fade + 1),
+           let next = nextTransitionTrack(), let file = try? AVAudioFile(forReading: next.url) {
+            transitionFile = file
+            transitionTrack = next
+            transitionNode.stop()
+            transitionNode.volume = fade > 0 ? 0 : 1
+            transitionNode.scheduleFile(file, at: nil)
+        }
+        guard transitionFile != nil else { return }
+        if !transitionStarted && remaining <= (fade > 0 ? fade : 0.20) {
+            transitionStarted = true
+            transitionStart = Date()
+            transitionStartFrame = 0
+            transitionElapsed = 0
+            transitionNode.play()
+        }
+        guard transitionStarted else { return }
+        if let render = transitionNode.lastRenderTime,
+           let playerTime = transitionNode.playerTime(forNodeTime: render),
+           let file = transitionFile {
+            transitionElapsed = Double(playerTime.sampleTime) / file.processingFormat.sampleRate
+        }
+        if fade > 0 {
+            let progress = min(1, max(0, (fade - remaining) / fade))
+            playerNode.volume = Float(cos(progress * .pi / 2))
+            transitionNode.volume = Float(sin(progress * .pi / 2))
+        }
+        if remaining <= 0.07 { finishTransition() }
+    }
+
+    private func finishTransition() {
+        guard let next = transitionTrack, let file = transitionFile else { return }
+        // Swap the live nodes rather than stopping the incoming decoder and
+        // restarting it on the outgoing node (which caused an audible gap).
+        let oldNode = playerNode
+        playerNode = transitionNode
+        transitionNode = oldNode
+        completionToken = UUID()
+        transitionNode.stop()
+        transitionNode.volume = 1
+        playerNode.volume = 1
+        let elapsed = transitionElapsed
+        transitionFile = nil
+        transitionTrack = nil
+        transitionStarted = false
+        transitionStart = nil
+        if extraQueue.first == next.id { extraQueue.removeFirst(); queueRevision += 1; saveExtras() }
+        current = next
+        playCounts[next.id, default: 0] += 1
+        saveExtras()
+        audioFile = file
+        duration = Double(file.length) / file.processingFormat.sampleRate
+        startFrame = 0
+        time = elapsed
+        completionToken = UUID()
+        tick()
+        publish()
     }
 
     private func configureAudio() { try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.allowAirPlay]); try? AVAudioSession.sharedInstance().setActive(true) }
     private func configureRemote() { let c = MPRemoteCommandCenter.shared(); c.playCommand.addTarget { [weak self] _ in Task { @MainActor in self?.toggle() }; return .success }; c.pauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.toggle() }; return .success }; c.nextTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.next() }; return .success }; c.previousTrackCommand.addTarget { [weak self] _ in Task { @MainActor in self?.previous() }; return .success } }
     private func publish() { guard let t = current else { return }; var n: [String: Any] = [MPMediaItemPropertyTitle: t.title, MPMediaItemPropertyArtist: t.artist, MPMediaItemPropertyAlbumTitle: t.album, MPMediaItemPropertyPlaybackDuration: duration, MPNowPlayingInfoPropertyElapsedPlaybackTime: time, MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? speed : 0]; if let d = t.artworkData, let im = UIImage(data: d) { n[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: im.size) { _ in im } }; MPNowPlayingInfoCenter.default().nowPlayingInfo = n }
+}
+import Foundation
+import CryptoKit
+
+@MainActor extension PlayerModel {
+    // Backup is a folder visible under Files > On My iPhone > Musix.
+    // Copy it off-device before deleting the app.
+    func exportLibraryBackup() throws -> URL {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = docs.appendingPathComponent("MusixBackup", isDirectory: true)
+        try? fm.removeItem(at: folder)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let audio = folder.appendingPathComponent("Audio", isDirectory: true)
+        try fm.createDirectory(at: audio, withIntermediateDirectories: true)
+        for track in tracks {
+            let destination = audio.appendingPathComponent(track.url.lastPathComponent)
+            if fm.fileExists(atPath: track.url.path) && !fm.fileExists(atPath: destination.path) {
+                try fm.copyItem(at: track.url, to: destination)
+            }
+        }
+        // Save pending changes before copying persistence snapshots.
+        let library = libraryFileURL
+        let extras = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MusixExtras.json")
+        // The library snapshot is updated asynchronously by ordinary edits; the backup
+        // exports current model state directly instead of relying on that pending write.
+        let saved = SavedLibrary(tracks: tracks.map { t in
+            SavedTrack(id: t.id, fileName: t.url.lastPathComponent, title: t.title,
+                       artist: t.artist, album: t.album, artworkData: t.artworkData,
+                       releaseDate: t.releaseDate, genre: t.genre, trackNumber: t.trackNumber,
+                       lyrics: t.lyrics.map { SavedLyric(time: $0.time, text: $0.text) })
+        }, favoriteIDs: Array(favoriteIDs))
+        try JSONEncoder().encode(saved).write(to: folder.appendingPathComponent("MusixLibrary.json"), options: .atomic)
+        let snapshot = BackupExtras(playlists: playlists, counts: playCounts, queuedIDs: extraQueue)
+        try JSONEncoder().encode(snapshot).write(to: folder.appendingPathComponent("MusixExtras.json"), options: .atomic)
+        _ = library; _ = extras
+        return folder
+    }
+
+    private struct BackupExtras: Codable { let playlists: [MusixPlaylist]; let counts: [UUID: Int]; let queuedIDs: [UUID]? }
+
+    func restoreLibraryBackup() throws {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = docs.appendingPathComponent("MusixBackup", isDirectory: true)
+        let saved = try JSONDecoder().decode(SavedLibrary.self, from: Data(contentsOf: folder.appendingPathComponent("MusixLibrary.json")))
+        let extras = try JSONDecoder().decode(BackupExtras.self, from: Data(contentsOf: folder.appendingPathComponent("MusixExtras.json")))
+        let audio = folder.appendingPathComponent("Audio", isDirectory: true)
+        for track in saved.tracks {
+            let source = audio.appendingPathComponent(track.fileName)
+            let destination = docs.appendingPathComponent(track.fileName)
+            guard fm.fileExists(atPath: source.path) else { throw NSError(domain: "MusixBackup", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing audio: \(track.fileName)"]) }
+            if !fm.fileExists(atPath: destination.path) { try fm.copyItem(at: source, to: destination) }
+        }
+        // Restore metadata only after all audio files are available.
+        try JSONEncoder().encode(saved).write(to: libraryFileURL, options: .atomic)
+        let extrasURL = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MusixExtras.json")
+        try JSONEncoder().encode(extras).write(to: extrasURL, options: .atomic)
+        loadLibrary()
+        playlists = extras.playlists
+        playCounts = extras.counts
+        extraQueue = (extras.queuedIDs ?? []).filter { id in tracks.contains(where: { $0.id == id }) }
+        queueRevision += 1
+        saveExtras()
+    }
+
+    func duplicateGroups() -> [[Track]] {
+        var groups: [String: [Track]] = [:]
+        for track in tracks {
+            guard let handle = try? FileHandle(forReadingFrom: track.url) else { continue }
+            var hasher = SHA256()
+            while true {
+                let chunk = handle.readData(ofLength: 1024 * 1024)
+                if chunk.isEmpty { break }
+                hasher.update(data: chunk)
+            }
+            try? handle.close()
+            let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            groups[digest, default: []].append(track)
+        }
+        return groups.values.filter { $0.count > 1 }.sorted { $0.count > $1.count }
+    }
 }
