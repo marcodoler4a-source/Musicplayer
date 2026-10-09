@@ -704,7 +704,7 @@ import ImageIO
 
     private func tick() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: batterySaver ? 0.75 : 0.5, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: batterySaver ? 1.5 : 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let render = self.playerNode.lastRenderTime, let nodeTime = self.playerNode.playerTime(forNodeTime: render), let file = self.audioFile else { return }
                 self.time = min(self.duration, Double(self.startFrame + AVAudioFramePosition(nodeTime.sampleTime)) / file.processingFormat.sampleRate)

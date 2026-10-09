@@ -9,6 +9,9 @@ struct ContentView: View {
     @State private var showPlayer = false
     @State private var showSleepTimer = false
     @State private var showQueue = false
+    @State private var showLibraryActions = false
+    @State private var showLibrarySortActions = false
+    @State private var showLibraryFilterActions = false
     @State private var showSearch = false
     @State private var showLibrarySearch = false
     @State private var musicInfoTarget: Track?
@@ -23,6 +26,8 @@ struct ContentView: View {
     @State private var libraryFilter = "All"
     @StateObject private var artistCovers = MusixArtistCoverStore.shared
     @State private var editingArtist: MusixArtistSelection?
+    @State private var editingAlbum: MusixArtistSelection?
+    @StateObject private var albumCovers = MusixAlbumCoverStore.shared
     @AppStorage("libraryGridMode") private var gridMode = false
 
     @AppStorage("compactRows") private var compactRows = false
@@ -101,7 +106,16 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $showPlayer) {
             NowPlayingView().environmentObject(p)
         }
-        .sheet(isPresented: $showSleepTimer) { MusixSleepTimerSheet().environmentObject(p) }
+        .confirmationDialog("Sleep Timer", isPresented: $showSleepTimer, titleVisibility: .visible) {
+            ForEach([0, 5, 10, 15, 20, 30, 45, 60, 90, 120], id: \.self) { minutes in
+                Button((p.sleepMinutes == minutes ? "✓ " : "") + (minutes == 0 ? "Off" : "\(minutes) minutes")) {
+                    p.setSleep(minutes)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(p.sleepMinutes > 0 ? "Currently set to \(p.sleepMinutes) minutes" : "Choose when playback should stop")
+        }
         .sheet(isPresented: $showQueue) { MusixQueueSheet().environmentObject(p) }
         .sheet(isPresented: $showSearch) {
             MusicInfoSearchView(target: musicInfoTarget).environmentObject(p)
@@ -363,17 +377,47 @@ struct ContentView: View {
 
     private var albumLibrary: some View {
         let groups = Dictionary(grouping: sortedTracks) { track in
-            track.album.isEmpty ? "Unknown Album" : track.album
+            track.album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unknown Album" : track.album
         }
-        return LazyVStack(spacing: 18) {
+        return LazyVStack(spacing: 12) {
             ForEach(groups.keys.sorted(), id: \.self) { album in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(album).font(.title3.bold()).padding(.horizontal, 4)
-                    ForEach(groups[album] ?? []) { track in trackRow(track, queue: groups[album] ?? []) }
+                let songs = groups[album] ?? []
+                NavigationLink {
+                    MusixAlbumCollectionView(album: album, songs: songs).environmentObject(p)
+                } label: {
+                    HStack(spacing: 14) {
+                        if let art = albumCovers.cover(for: album) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
+                            Artwork(data: art).frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 14))
+                        } else {
+                            Image(systemName: "square.stack.fill")
+                                .font(.system(size: 48)).foregroundStyle(.cyan)
+                                .frame(width: 72, height: 72)
+                        }
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(album).font(.headline).foregroundStyle(.white)
+                            Text(songs.first?.artist ?? "Unknown Artist").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                            Text("\(songs.count) songs").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button { editingAlbum = MusixArtistSelection(name: album) } label: { Label("Add / Replace Album Image", systemImage: "photo") }
+                    Button { MusixAlbumCoverSearch.open(album) } label: { Label("Search Album Image", systemImage: "magnifyingglass") }
+                    if albumCovers.hasCover(for: album) {
+                        Button(role: .destructive) { albumCovers.remove(artist: album) } label: { Label("Reset Album Image", systemImage: "arrow.counterclockwise") }
+                    }
                 }
             }
         }
         .padding(.horizontal)
+        .sheet(item: $editingAlbum) { album in
+            MusixAlbumCoverEditor(album: album.name)
+        }
     }
 
     private var favorites: some View {
@@ -459,14 +503,6 @@ struct ContentView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(title)
                         .font(.largeTitle.bold())
-                        .overlay(alignment: .topLeading) {
-                            if title == "Library" {
-                                MusixLibraryPortrait()
-                                    .offset(x: 105, y: -30)
-                                    .allowsHitTesting(false)
-                                    .accessibilityHidden(true)
-                            }
-                        }
                     if let count = count {
                         Text("\(count)")
                             .font(.caption.weight(.semibold))
@@ -488,35 +524,41 @@ struct ContentView: View {
                     .padding(12)
                     .background(.ultraThinMaterial, in: Circle())
             }
-            Menu {
-                Button { selectMode.toggle(); if !selectMode { selectedIDs.removeAll() } } label: {
-                    Label(selectMode ? "Done Selecting" : "Select", systemImage: "checkmark.circle")
-                }
-                Button { showLibrarySearch = true } label: { Label("Search Music Files", systemImage: "magnifyingglass") }
-                Menu("Sort", systemImage: "arrow.up.arrow.down") {
-                    ForEach(LibrarySort.allCases) { option in
-                        Button { librarySort = option.rawValue } label: {
-                            if librarySort == option.rawValue { Label(option.rawValue, systemImage: "checkmark") } else { Text(option.rawValue) }
-                        }
-                    }
-                }
-                Menu("Filter", systemImage: "line.3.horizontal.decrease") {
-                    Button { libraryFilter = "All" } label: { Label("All songs", systemImage: libraryFilter == "All" ? "checkmark" : "music.note") }
-                    Button { libraryFilter = "Favorites" } label: { Label("Favorites", systemImage: libraryFilter == "Favorites" ? "checkmark" : "heart") }
-                }
-                Button { gridMode.toggle() } label: { Label(gridMode ? "List" : "Grid", systemImage: gridMode ? "list.bullet" : "square.grid.2x2") }
-                Button { showSleepTimer = true } label: { Label("Sleep Timer", systemImage: "moon.zzz.fill") }
-                Button { showQueue = true } label: { Label("Up Next Queue", systemImage: "text.line.first.and.arrowtriangle.forward") }
-                Button { if let track = p.current { p.enqueue(track, next: true) } } label: { Label("Play Current Song Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
-                .disabled(p.current == nil)
-                Button { if let track = p.current { p.enqueue(track, next: false) } } label: { Label("Add Current Song to Queue", systemImage: "text.badge.plus") }
-                .disabled(p.current == nil)
-                Button { tab = 4 } label: { Label("Settings", systemImage: "gearshape") }
-            } label: {
+            Button { showLibraryActions = true } label: {
                 Image(systemName: "ellipsis")
                     .font(.title3)
-                    .padding(12)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .frame(width: 44, height: 44)
+                    .background(Color(white: 0.16), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Library options")
+            .confirmationDialog("Library Options", isPresented: $showLibraryActions, titleVisibility: .visible) {
+                Button(selectMode ? "Done Selecting" : "Select") {
+                    selectMode.toggle()
+                    if !selectMode { selectedIDs.removeAll() }
+                }
+                Button("Search Music Files") { showLibrarySearch = true }
+                Button("Sort") { showLibrarySortActions = true }
+                Button("Filter") { showLibraryFilterActions = true }
+                Button(gridMode ? "List" : "Grid") { gridMode.toggle() }
+                Button("Sleep Timer") { showSleepTimer = true }
+                Button("Up Next Queue") { showQueue = true }
+                Button("Settings") { tab = 4 }
+                Button("Cancel", role: .cancel) { }
+            }
+            .confirmationDialog("Sort Library", isPresented: $showLibrarySortActions, titleVisibility: .visible) {
+                ForEach(LibrarySort.allCases) { option in
+                    Button(option.rawValue == librarySort ? "✓ " + option.rawValue : option.rawValue) {
+                        librarySort = option.rawValue
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+            .confirmationDialog("Filter Library", isPresented: $showLibraryFilterActions, titleVisibility: .visible) {
+                Button(libraryFilter == "All" ? "✓ All songs" : "All songs") { libraryFilter = "All" }
+                Button(libraryFilter == "Favorites" ? "✓ Favorites" : "Favorites") { libraryFilter = "Favorites" }
+                Button("Cancel", role: .cancel) { }
             }
         }
         .padding(.horizontal)
@@ -930,28 +972,41 @@ private struct LibraryScrollOffsetKey: PreferenceKey {
 struct MusixSleepTimerSheet: View {
     @EnvironmentObject var p: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    private let choices = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120]
+
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Stop music after") {
-                    ForEach([0, 5, 10, 15, 20, 30, 45, 60, 90, 120], id: \.self) { minutes in
+        VStack(spacing: 16) {
+            HStack {
+                Image(systemName: "moon.zzz.fill").foregroundStyle(.cyan)
+                Text("Sleep Timer").font(.title3.bold())
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary) }
+            }
+            Text(p.sleepMinutes > 0 ? "Music will pause after \(p.sleepMinutes) minutes." : "Choose when Musix should stop playing.")
+                .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(choices, id: \.self) { minutes in
                         Button {
                             p.setSleep(minutes)
                             dismiss()
                         } label: {
-                            HStack {
-                                Text(minutes == 0 ? "Off / Cancel Timer" : "\(minutes) minutes")
-                                Spacer()
-                                if p.sleepMinutes == minutes { Image(systemName: "checkmark").foregroundStyle(.cyan) }
+                            HStack(spacing: 6) {
+                                Text(minutes == 0 ? "Off" : "\(minutes) min")
+                                if p.sleepMinutes == minutes { Image(systemName: "checkmark.circle.fill") }
                             }
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .background(p.sleepMinutes == minutes ? Color.cyan.opacity(0.22) : Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
                         }
+                        .buttonStyle(.plain)
                     }
                 }
-                Section { Text("Music pauses when the timer finishes. The timer can be cancelled by selecting Off.") }
             }
-            .navigationTitle("Sleep Timer")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
+        .padding(22)
+        .preferredColorScheme(.dark)
+        .background(Color.clear)
     }
 }
 
@@ -1000,10 +1055,21 @@ struct MusixArtistCollectionView: View {
         List {
             Section {
                 HStack(spacing: 16) {
+                    Group {
                     if let art = artistCovers.cover(for: artist) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
                         Artwork(data: art).frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 16))
                     } else {
                         Image(systemName: "person.crop.circle.fill").font(.system(size: 76)).foregroundStyle(.cyan)
+                    }
+                    }
+                    .frame(width: 96, height: 96)
+                    .contentShape(Rectangle())
+                    .contextMenu {
+                        Button { editingCover = true } label: { Label("Add / Replace Artist Image", systemImage: "photo") }
+                        Button { MusixArtistCoverSearch.open(artist) } label: { Label("Search Artist Image", systemImage: "magnifyingglass") }
+                        if artistCovers.hasCover(for: artist) {
+                            Button(role: .destructive) { artistCovers.remove(artist: artist) } label: { Label("Reset Artist Image", systemImage: "arrow.counterclockwise") }
+                        }
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text(artist).font(.title2.bold())
@@ -1051,27 +1117,73 @@ struct MusixArtistCollectionView: View {
     }
 }
 
-
-// A small floating portrait above the final letter of the Library heading.
-// The original photo is used without face alterations.
-private struct MusixLibraryPortrait: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var floating = false
+struct MusixAlbumCollectionView: View {
+    @EnvironmentObject var p: PlayerModel
+    @StateObject private var covers = MusixAlbumCoverStore.shared
+    @State private var editingCover = false
+    @State private var showPlayer = false
+    let album: String
+    let songs: [Track]
 
     var body: some View {
-        Image("LibraryPortrait")
-            .resizable()
-            .scaledToFill()
-            .frame(width: 34, height: 34)
-            .clipShape(Circle())
-            .overlay(Circle().strokeBorder(Color.white.opacity(0.65), lineWidth: 1))
-            .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
-            .offset(y: floating ? -3 : 0)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.9).repeatForever(autoreverses: true)) {
-                    floating = true
+        List {
+            Section {
+                HStack(spacing: 16) {
+                    Group {
+                        if let art = covers.cover(for: album) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
+                            Artwork(data: art).frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 16))
+                        } else {
+                            Image(systemName: "square.stack.fill").font(.system(size: 70)).foregroundStyle(.cyan)
+                        }
+                    }
+                    .frame(width: 96, height: 96)
+                    .contentShape(Rectangle())
+                    .contextMenu { coverMenu }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(album).font(.title2.bold())
+                        Text(songs.first?.artist ?? "Unknown Artist").foregroundStyle(.secondary)
+                        Text("\(songs.count) songs").font(.caption).foregroundStyle(.secondary)
+                        Button("Play All") { if let first = songs.first { p.play(first, queue: songs); showPlayer = true } }
+                            .buttonStyle(.borderedProminent)
+                    }
                 }
             }
+            Section("Songs") {
+                ForEach(songs) { track in
+                    HStack {
+                        Button {
+                            p.play(track, queue: songs)
+                            showPlayer = true
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(track.title).foregroundStyle(.primary)
+                                Text(track.artist).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        Menu {
+                            Button { p.enqueue(track, next: true) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
+                            Button { p.enqueue(track, next: false) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
+                        } label: { Image(systemName: "ellipsis").padding(8) }
+                    }
+                }
+            }
+        }
+        .navigationTitle(album)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu { coverMenu } label: { Image(systemName: "ellipsis.circle") }
+            }
+        }
+        .sheet(isPresented: $editingCover) { MusixAlbumCoverEditor(album: album) }
+        .fullScreenCover(isPresented: $showPlayer) { NowPlayingView().environmentObject(p) }
+    }
+
+    @ViewBuilder private var coverMenu: some View {
+        Button { editingCover = true } label: { Label("Add / Replace Album Image", systemImage: "photo") }
+        Button { MusixAlbumCoverSearch.open(album) } label: { Label("Search Album Image", systemImage: "magnifyingglass") }
+        if covers.hasCover(for: album) {
+            Button(role: .destructive) { covers.remove(artist: album) } label: { Label("Reset Album Image", systemImage: "arrow.counterclockwise") }
+        }
     }
 }

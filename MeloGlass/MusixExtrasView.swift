@@ -245,6 +245,18 @@ struct MusixKaraokeView: View {
             }
         }
         .preferredColorScheme(.dark)
+        // A downward swipe starting in the header dismisses karaoke.
+        // Restricting the start area preserves scrolling and lyric-tap seeking.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 35)
+                .onEnded { gesture in
+                    if gesture.startLocation.y < 150 &&
+                        gesture.translation.height > 85 &&
+                        abs(gesture.translation.width) < gesture.translation.height {
+                        dismiss()
+                    }
+                }
+        )
     }
 }
 

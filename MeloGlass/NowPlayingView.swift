@@ -74,7 +74,16 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showLyrics) { FullLyricsView().environmentObject(p) }
         .fullScreenCover(isPresented: $showKaraoke) { MusixKaraokeView().environmentObject(p) }
         .sheet(isPresented: $showSettings) { PlayerSettingsView(showLyricSearch: $showLyricSearch, showLRCImporter: $showLRCImporter).environmentObject(p) }
-        .sheet(isPresented: $showSleepTimer) { MusixSleepTimerSheet().environmentObject(p) }
+        .confirmationDialog("Sleep Timer", isPresented: $showSleepTimer, titleVisibility: .visible) {
+            ForEach([0, 5, 10, 15, 20, 30, 45, 60, 90, 120], id: \.self) { minutes in
+                Button((p.sleepMinutes == minutes ? "✓ " : "") + (minutes == 0 ? "Off" : "\(minutes) minutes")) {
+                    p.setSleep(minutes)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(p.sleepMinutes > 0 ? "Currently set to \(p.sleepMinutes) minutes" : "Choose when playback should stop")
+        }
         .sheet(isPresented: $showQueue) { MusixQueueSheet().environmentObject(p) }
         .sheet(isPresented: $showTagEditor) { if let track=p.current { EditAudioTagView(track:track).environmentObject(p) } }
         .confirmationDialog("Song Options", isPresented: $showArtworkMenu, titleVisibility: .visible) {
