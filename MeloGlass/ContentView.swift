@@ -347,7 +347,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    Button { editingArtist = artist } label: { Label("Edit Artist Cover", systemImage: "photo") }
+                    Button { editingArtist = MusixArtistSelection(name: artist) } label: { Label("Edit Artist Cover", systemImage: "photo") }
                     Button { MusixArtistCoverSearch.open(artist) } label: { Label("Search Artist Photo", systemImage: "magnifyingglass") }
                     if artistCovers.hasCover(for: artist) {
                         Button(role: .destructive) { artistCovers.remove(artist: artist) } label: { Label("Reset Cover", systemImage: "arrow.counterclockwise") }
