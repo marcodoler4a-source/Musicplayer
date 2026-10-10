@@ -77,6 +77,20 @@ struct ContentView: View {
         }
     }
 
+    // Show each song only once in Continue Listening, ordered by its latest play.
+    // Keep the full playback history unchanged for statistics and History.
+    private var continueListeningTracks: [Track] {
+        var seen = Set<UUID>()
+        var unique: [Track] = []
+        for track in p.historyTracks {
+            if seen.insert(track.id).inserted {
+                unique.append(track)
+                if unique.count == 8 { break }
+            }
+        }
+        return unique
+    }
+
     private var libraryVisibleTracks: [Track] {
         libraryFilter == "Favorites" ? sortedTracks.filter { p.isFavorite($0) } : sortedTracks
     }
@@ -240,7 +254,7 @@ struct ContentView: View {
                                 }
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 10) {
-                                        ForEach(Array(p.historyTracks.prefix(8))) { song in
+                                        ForEach(continueListeningTracks) { song in
                                             Button { p.play(song); showPlayer = true } label: {
                                                 VStack(alignment: .leading, spacing: 5) {
                                                     Artwork(data: song.artworkData).frame(width: 94, height: 94)
@@ -1180,141 +1194,323 @@ struct MusixQueueSheet: View {
 }
 
 struct MusixArtistCollectionView: View {
-    @EnvironmentObject var p: PlayerModel
+    @EnvironmentObject private var p: PlayerModel
+    @Environment(\.dismiss) private var dismiss
     @State private var showPlayer = false
     @State private var editingCover = false
     @StateObject private var artistCovers = MusixArtistCoverStore.shared
     let artist: String
     let songs: [Track]
+
+    private var coverData: Data? {
+        artistCovers.cover(for: artist) ?? songs.first(where: { $0.artworkData != nil })?.artworkData
+    }
+
+    private var totalDuration: String {
+        "\(songs.count) songs"
+    }
+
+    private func startPlaying(shuffled: Bool) {
+        let selection = shuffled ? songs.shuffled() : songs
+        guard let first = selection.first else { return }
+        p.play(first, queue: selection)
+        showPlayer = true
+    }
+
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 16) {
-                    Group {
-                    if let art = artistCovers.cover(for: artist) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
-                        Artwork(data: art).frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 16))
-                    } else {
-                        Image(systemName: "person.crop.circle.fill").font(.system(size: 76)).foregroundStyle(.cyan)
-                    }
-                    }
-                    .frame(width: 96, height: 96)
-                    .contentShape(Rectangle())
-                    .contextMenu {
-                        Button { editingCover = true } label: { Label("Add / Replace Artist Image", systemImage: "photo") }
-                        Button { MusixArtistCoverSearch.open(artist) } label: { Label("Search Artist Image", systemImage: "magnifyingglass") }
-                        if artistCovers.hasCover(for: artist) {
-                            Button(role: .destructive) { artistCovers.remove(artist: artist) } label: { Label("Reset Artist Image", systemImage: "arrow.counterclockwise") }
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(artist).font(.title2.bold())
-                        Text("\(songs.count) songs").foregroundStyle(.secondary)
-                        Button("Play All") { if let first = songs.first { p.play(first, queue: songs); showPlayer = true } }
-                            .buttonStyle(.borderedProminent)
-                    }
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                Color(red: 0.07, green: 0.06, blue: 0.08).ignoresSafeArea()
+                if let coverData, let image = UIImage(data: coverData) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: max(geo.size.height, 700))
+                        .blur(radius: 85)
+                        .overlay(Color.black.opacity(0.58))
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
                 }
-            }
-            Section("Songs") {
-                ForEach(songs) { track in
-                    HStack {
-                        Button {
-                            p.play(track, queue: songs)
-                            showPlayer = true
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(track.title).foregroundStyle(.primary)
-                                if !track.album.isEmpty { Text(track.album).font(.caption).foregroundStyle(.secondary) }
+                LinearGradient(colors: [.clear, Color.black.opacity(0.38), Color.black.opacity(0.83)], startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea().allowsHitTesting(false)
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Artwork(data: coverData)
+                            .frame(width: min(geo.size.width - 54, 370), height: min((geo.size.width - 54) * 0.79, 300))
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .contentShape(Rectangle())
+                            .contextMenu { artistCoverActions }
+                            .padding(.top, 20)
+                            .padding(.bottom, 38)
+
+                        Text(artist)
+                            .font(.system(size: 31, weight: .bold))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18)
+                        Text(totalDuration)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .padding(.top, 6)
+
+                        HStack(spacing: 14) {
+                            Button { startPlaying(shuffled: true) } label: {
+                                Image(systemName: "shuffle")
+                                    .font(.title3.weight(.semibold))
+                                    .frame(width: 58, height: 54)
+                                    .background(.white.opacity(0.13), in: Capsule())
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Button { startPlaying(shuffled: false) } label: {
+                                Label("Play", systemImage: "play.fill")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 54)
+                                    .background(.white, in: Capsule())
+                                    .foregroundStyle(.black)
+                            }
+                            Button {
+                                for song in songs { p.enqueue(song, next: false) }
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.title3.weight(.semibold))
+                                    .frame(width: 58, height: 54)
+                                    .background(.white.opacity(0.13), in: Capsule())
+                            }
                         }
-                        Menu {
-                            Button { p.enqueue(track, next: true) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
-                            Button { p.enqueue(track, next: false) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
-                        } label: { Image(systemName: "ellipsis").padding(8) }
+                        .foregroundStyle(.white)
+                        .buttonStyle(.plain)
+                        .padding(.top, 23)
+                        .padding(.bottom, 25)
+
+                        LazyVStack(spacing: 0) {
+                            ForEach(songs) { track in
+                                HStack(spacing: 12) {
+                                    Button {
+                                        p.play(track, queue: songs)
+                                        showPlayer = true
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            Artwork(data: track.artworkData)
+                                                .frame(width: 52, height: 52)
+                                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                            VStack(alignment: .leading, spacing: 5) {
+                                                Text(track.title)
+                                                    .font(.system(size: 16, weight: .medium))
+                                                    .lineLimit(1)
+                                                    .foregroundStyle(.white)
+                                                Text(track.album.isEmpty ? artist : track.album)
+                                                    .font(.subheadline)
+                                                    .lineLimit(1)
+                                                    .foregroundStyle(.white.opacity(0.65))
+                                            }
+                                            Spacer(minLength: 0)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    Menu {
+                                        Button { p.enqueue(track, next: true) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
+                                        Button { p.enqueue(track, next: false) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
+                                    } label: {
+                                        Image(systemName: "ellipsis")
+                                            .font(.title3)
+                                            .foregroundStyle(.white.opacity(0.8))
+                                            .frame(width: 40, height: 48)
+                                            .contentShape(Rectangle())
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                                Divider().overlay(.white.opacity(0.13))
+                            }
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 110)
                 }
             }
         }
-        .navigationTitle(artist)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { editingCover = true } label: { Label("Edit Artist Cover", systemImage: "photo") }
-                    Button { MusixArtistCoverSearch.open(artist) } label: { Label("Search Artist Photo", systemImage: "magnifyingglass") }
-                    if artistCovers.hasCover(for: artist) {
-                        Button(role: .destructive) { artistCovers.remove(artist: artist) } label: { Label("Reset Cover", systemImage: "arrow.counterclockwise") }
-                    }
-                } label: { Image(systemName: "ellipsis.circle") }
+                Menu { artistCoverActions } label: {
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(.white)
+                }
             }
         }
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editingCover) { MusixArtistCoverEditor(artist: artist) }
         .fullScreenCover(isPresented: $showPlayer) { NowPlayingView().environmentObject(p) }
+    }
+
+    @ViewBuilder private var artistCoverActions: some View {
+        Button { editingCover = true } label: { Label("Add / Replace Artist Image", systemImage: "photo") }
+        Button { MusixArtistCoverSearch.open(artist) } label: { Label("Search Artist Image", systemImage: "magnifyingglass") }
+        if artistCovers.hasCover(for: artist) {
+            Button(role: .destructive) { artistCovers.remove(artist: artist) } label: { Label("Reset Artist Image", systemImage: "arrow.counterclockwise") }
+        }
     }
 }
 
 struct MusixAlbumCollectionView: View {
-    @EnvironmentObject var p: PlayerModel
-    @StateObject private var covers = MusixAlbumCoverStore.shared
-    @State private var editingCover = false
+    @EnvironmentObject private var p: PlayerModel
+    @Environment(\.dismiss) private var dismiss
     @State private var showPlayer = false
+    @State private var editingCover = false
+    @StateObject private var covers = MusixAlbumCoverStore.shared
     let album: String
     let songs: [Track]
 
+    private var coverData: Data? {
+        covers.cover(for: album) ?? songs.first(where: { $0.artworkData != nil })?.artworkData
+    }
+
+    private var totalDuration: String {
+        "\(songs.count) songs"
+    }
+
+    private func startPlaying(shuffled: Bool) {
+        let selection = shuffled ? songs.shuffled() : songs
+        guard let first = selection.first else { return }
+        p.play(first, queue: selection)
+        showPlayer = true
+    }
+
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 16) {
-                    Group {
-                        if let art = covers.cover(for: album) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
-                            Artwork(data: art).frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 16))
-                        } else {
-                            Image(systemName: "square.stack.fill").font(.system(size: 70)).foregroundStyle(.cyan)
-                        }
-                    }
-                    .frame(width: 96, height: 96)
-                    .contentShape(Rectangle())
-                    .contextMenu { coverMenu }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(album).font(.title2.bold())
-                        Text(songs.first?.artist ?? "Unknown Artist").foregroundStyle(.secondary)
-                        Text("\(songs.count) songs").font(.caption).foregroundStyle(.secondary)
-                        Button("Play All") { if let first = songs.first { p.play(first, queue: songs); showPlayer = true } }
-                            .buttonStyle(.borderedProminent)
-                    }
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                Color(red: 0.07, green: 0.06, blue: 0.08).ignoresSafeArea()
+                if let coverData, let image = UIImage(data: coverData) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: max(geo.size.height, 700))
+                        .blur(radius: 85)
+                        .overlay(Color.black.opacity(0.58))
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
                 }
-            }
-            Section("Songs") {
-                ForEach(songs) { track in
-                    HStack {
-                        Button {
-                            p.play(track, queue: songs)
-                            showPlayer = true
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(track.title).foregroundStyle(.primary)
-                                Text(track.artist).font(.caption).foregroundStyle(.secondary)
+                LinearGradient(colors: [.clear, Color.black.opacity(0.38), Color.black.opacity(0.83)], startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea().allowsHitTesting(false)
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Artwork(data: coverData)
+                            .frame(width: min(geo.size.width - 54, 370), height: min((geo.size.width - 54) * 0.79, 300))
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .contentShape(Rectangle())
+                            .contextMenu { albumCoverActions }
+                            .padding(.top, 20)
+                            .padding(.bottom, 38)
+
+                        Text(album)
+                            .font(.system(size: 31, weight: .bold))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 18)
+                        Text(songs.first?.artist ?? "Unknown Artist")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .padding(.top, 6)
+                        Text(totalDuration)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .padding(.top, 6)
+
+                        HStack(spacing: 14) {
+                            Button { startPlaying(shuffled: true) } label: {
+                                Image(systemName: "shuffle")
+                                    .font(.title3.weight(.semibold))
+                                    .frame(width: 58, height: 54)
+                                    .background(.white.opacity(0.13), in: Capsule())
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Button { startPlaying(shuffled: false) } label: {
+                                Label("Play", systemImage: "play.fill")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 54)
+                                    .background(.white, in: Capsule())
+                                    .foregroundStyle(.black)
+                            }
+                            Button {
+                                for song in songs { p.enqueue(song, next: false) }
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.title3.weight(.semibold))
+                                    .frame(width: 58, height: 54)
+                                    .background(.white.opacity(0.13), in: Capsule())
+                            }
                         }
-                        Menu {
-                            Button { p.enqueue(track, next: true) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
-                            Button { p.enqueue(track, next: false) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
-                        } label: { Image(systemName: "ellipsis").padding(8) }
+                        .foregroundStyle(.white)
+                        .buttonStyle(.plain)
+                        .padding(.top, 23)
+                        .padding(.bottom, 25)
+
+                        LazyVStack(spacing: 0) {
+                            ForEach(songs) { track in
+                                HStack(spacing: 12) {
+                                    Button {
+                                        p.play(track, queue: songs)
+                                        showPlayer = true
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            Artwork(data: track.artworkData)
+                                                .frame(width: 52, height: 52)
+                                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                            VStack(alignment: .leading, spacing: 5) {
+                                                Text(track.title)
+                                                    .font(.system(size: 16, weight: .medium))
+                                                    .lineLimit(1)
+                                                    .foregroundStyle(.white)
+                                                Text(track.artist.isEmpty ? "Unknown Artist" : track.artist)
+                                                    .font(.subheadline)
+                                                    .lineLimit(1)
+                                                    .foregroundStyle(.white.opacity(0.65))
+                                            }
+                                            Spacer(minLength: 0)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    Menu {
+                                        Button { p.enqueue(track, next: true) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
+                                        Button { p.enqueue(track, next: false) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
+                                    } label: {
+                                        Image(systemName: "ellipsis")
+                                            .font(.title3)
+                                            .foregroundStyle(.white.opacity(0.8))
+                                            .frame(width: 40, height: 48)
+                                            .contentShape(Rectangle())
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                                Divider().overlay(.white.opacity(0.13))
+                            }
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 110)
                 }
             }
         }
-        .navigationTitle(album)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu { coverMenu } label: { Image(systemName: "ellipsis.circle") }
+                Menu { albumCoverActions } label: {
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(.white)
+                }
             }
         }
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editingCover) { MusixAlbumCoverEditor(album: album) }
         .fullScreenCover(isPresented: $showPlayer) { NowPlayingView().environmentObject(p) }
     }
 
-    @ViewBuilder private var coverMenu: some View {
+    @ViewBuilder private var albumCoverActions: some View {
         Button { editingCover = true } label: { Label("Add / Replace Album Image", systemImage: "photo") }
         Button { MusixAlbumCoverSearch.open(album) } label: { Label("Search Album Image", systemImage: "magnifyingglass") }
         if covers.hasCover(for: album) {
@@ -1322,6 +1518,7 @@ struct MusixAlbumCollectionView: View {
         }
     }
 }
+
 
 
 // A separate menu view deliberately does not observe PlayerModel. Playback progress
