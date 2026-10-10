@@ -24,7 +24,17 @@ struct ContentView: View {
     @State private var showAlphabetIndex = false
     @State private var alphabetHideWorkItem: DispatchWorkItem?
     @State private var lastLibraryScrollOffset: CGFloat = 0
+    @State private var currentScrollLetter = "A"
     @State private var libraryFilter = "All"
+    @AppStorage("musixV102ShowContinue") private var showContinue = true
+    @AppStorage("musixV102ShowOverview") private var showOverview = true
+    @AppStorage("musixV102ArtistSort") private var artistSort = "Name"
+    @AppStorage("musixV102PinnedArtists") private var pinnedArtistsJSON = "[]"
+    @AppStorage("musixV102PinnedAlbums") private var pinnedAlbumsJSON = "[]"
+    @State private var searchGenre = "All Genres"
+    @State private var searchFavorites = false
+    @State private var showMissingArtwork = false
+    @State private var showStorageOverview = false
     @StateObject private var artistCovers = MusixArtistCoverStore.shared
     @State private var editingArtist: MusixArtistSelection?
     @State private var editingAlbum: MusixArtistSelection?
@@ -172,6 +182,7 @@ struct ContentView: View {
                         Text("Artists").tag("Artists")
                         Text("Albums").tag("Albums")
                         Text("History").tag("History")
+                        Text("Genres").tag("Genres")
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
@@ -220,6 +231,36 @@ struct ContentView: View {
                                             value: geo.frame(in: .named("libraryScroll")).minY)
                         }
                         .frame(height: 0)
+                        if librarySection == "Songs" && showContinue && !p.historyTracks.isEmpty {
+                            VStack(alignment: .leading, spacing: 9) {
+                                HStack {
+                                    Label("Continue Listening", systemImage: "play.circle.fill").font(.headline)
+                                    Spacer()
+                                    Button("Hide") { showContinue = false }.font(.caption)
+                                }
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 10) {
+                                        ForEach(Array(p.historyTracks.prefix(8))) { song in
+                                            Button { p.play(song); showPlayer = true } label: {
+                                                VStack(alignment: .leading, spacing: 5) {
+                                                    Artwork(data: song.artworkData).frame(width: 94, height: 94)
+                                                    Text(song.title).font(.caption).lineLimit(1).frame(width: 94, alignment: .leading)
+                                                }
+                                            }.buttonStyle(.plain)
+                                        }
+                                    }
+                                }
+                            }.padding(.horizontal)
+                        }
+                        if librarySection == "Songs" && showOverview {
+                            HStack {
+                                Label("\(p.tracks.count) songs", systemImage: "music.note")
+                                Spacer()
+                                Button("Storage & Cleanup") { showStorageOverview = true }.font(.caption)
+                            }.font(.subheadline).padding(12)
+                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                             .padding(.horizontal)
+                        }
                         if p.tracks.isEmpty {
                             empty(
                                 "music.note.list",
@@ -232,6 +273,8 @@ struct ContentView: View {
                             albumLibrary
                         } else if librarySection == "History" {
                             historyLibrary
+                        } else if librarySection == "Genres" {
+                            genreLibrary
                         } else {
                             if gridMode {
                                 LazyVGrid(columns: [
@@ -245,7 +288,13 @@ struct ContentView: View {
                                 .padding(.horizontal)
                             } else {
                                 LazyVStack(spacing: compactRows ? 5 : 10) {
-                                    ForEach(libraryVisibleTracks) { track in trackRow(track, queue: libraryVisibleTracks) }
+                                    ForEach(libraryVisibleTracks) { track in
+                                        trackRow(track, queue: libraryVisibleTracks)
+                                            .background(GeometryReader { rowGeo in
+                                                Color.clear.preference(key: MusixVisibleLettersKey.self,
+                                                    value: [track.id: (rowGeo.frame(in: .named("libraryScroll")).minY, String(track.title.prefix(1)).uppercased())])
+                                            })
+                                    }
                                 }
                                 .padding(.horizontal)
                             }
@@ -268,6 +317,14 @@ struct ContentView: View {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
                             }
                     )
+                    .onPreferenceChange(MusixVisibleLettersKey.self) { positions in
+                        guard librarySection == "Songs", !gridMode, !positions.isEmpty else { return }
+                        let ordered = positions.values.sorted { abs($0.0 - 12) < abs($1.0 - 12) }
+                        if let visible = ordered.first {
+                            let letter = visible.1
+                            currentScrollLetter = letter.range(of: "^[A-Z]$", options: .regularExpression) != nil ? letter : "#"
+                        }
+                    }
                     .onPreferenceChange(LibraryScrollOffsetKey.self) { offset in
                         guard librarySection == "Songs", !gridMode, !libraryVisibleTracks.isEmpty else { return }
                         let moved = abs(offset - lastLibraryScrollOffset) > 0.5
@@ -287,11 +344,39 @@ struct ContentView: View {
                                 .zIndex(100)
                         }
                     }
+                    .overlay(alignment: .center) {
+                        if showAlphabetIndex && librarySection == "Songs" && !gridMode {
+                            Text(currentScrollLetter)
+                                .font(.system(size: 48, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .frame(width: 92, height: 92)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
                     .animation(.easeOut(duration: 0.18), value: showAlphabetIndex)
                     .padding(.top, 8)
                     .padding(.bottom, 8)
                   }
                 }
+            }
+            .sheet(isPresented: $showStorageOverview) {
+                MusixLibraryOverview(tracks: p.tracks, onFindMissing: {
+                    showStorageOverview = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showMissingArtwork = true }
+                })
+            }
+            .sheet(isPresented: $showMissingArtwork) {
+                NavigationStack {
+                    List(p.tracks.filter { $0.artworkData == nil }) { song in
+                        HStack { Image(systemName: "music.note"); VStack(alignment: .leading) {
+                            Text(song.title); Text(song.artist).font(.caption).foregroundStyle(.secondary)
+                        }}
+                    }
+                    .navigationTitle("Missing Artwork")
+                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showMissingArtwork = false } } }
+                }.preferredColorScheme(.dark)
             }
             .alert("Delete Selected Songs?", isPresented: $confirmDeleteSelected) {
                 Button("Cancel", role: .cancel) { }
@@ -307,6 +392,29 @@ struct ContentView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
+    }
+
+    private var genreLibrary: some View {
+        let groups = Dictionary(grouping: p.tracks) { $0.genre.isEmpty ? "Unknown Genre" : $0.genre }
+        return LazyVStack(spacing: 12) {
+            ForEach(groups.keys.sorted(), id: \.self) { genre in
+                let songs = groups[genre] ?? []
+                NavigationLink {
+                    List(songs) { song in
+                        Button { p.play(song, queue: songs); showPlayer = true } label: {
+                            HStack { Artwork(data: song.artworkData).frame(width: 48, height: 48)
+                                VStack(alignment: .leading) { Text(song.title); Text(song.artist).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }.buttonStyle(.plain)
+                    }.navigationTitle(genre)
+                } label: {
+                    HStack { Image(systemName: "square.stack.fill").foregroundStyle(accent)
+                        Text(genre).font(.headline); Spacer(); Text("\(songs.count) songs").foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                    }.padding(16).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain)
+            }
+        }.padding(.horizontal)
     }
 
     private var historyLibrary: some View {
@@ -332,37 +440,59 @@ struct ContentView: View {
         }
     }
 
+    private func pinned(_ json: String) -> Set<String> {
+        Set((try? JSONDecoder().decode([String].self, from: Data(json.utf8))) ?? [])
+    }
+    private func togglePin(_ name: String, artist: Bool) {
+        var values = pinned(artist ? pinnedArtistsJSON : pinnedAlbumsJSON)
+        if values.contains(name) { values.remove(name) } else { values.insert(name) }
+        let encoded = (try? JSONEncoder().encode(values.sorted())).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        if artist { pinnedArtistsJSON = encoded } else { pinnedAlbumsJSON = encoded }
+    }
+
     private var artistLibrary: some View {
         let groups = Dictionary(grouping: sortedTracks) { track in
             track.artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unknown Artist" : track.artist
         }
         return LazyVGrid(columns: collectionGrid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
-            ForEach(groups.keys.sorted(), id: \.self) { artist in
+            ForEach(groups.keys.sorted { a, b in
+                let pins = pinned(pinnedArtistsJSON)
+                if pins.contains(a) != pins.contains(b) { return pins.contains(a) }
+                if artistSort == "Song Count" && groups[a, default: []].count != groups[b, default: []].count {
+                    return groups[a, default: []].count > groups[b, default: []].count
+                }
+                return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+            }, id: \.self) { artist in
                 let songs = groups[artist] ?? []
                 NavigationLink {
                     MusixArtistCollectionView(artist: artist, songs: songs)
                         .environmentObject(p)
                 } label: {
-                    HStack(spacing: collectionGrid ? 7 : 14) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        if !collectionGrid { EmptyView() }
                         if let art = artistCovers.cover(for: artist) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
-                            Artwork(data: art).frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 14))
+                            Artwork(data: art).frame(maxWidth: .infinity).frame(height: collectionGrid ? 134 : 100).clipped().clipShape(RoundedRectangle(cornerRadius: 14))
                         } else {
                             Image(systemName: "person.crop.circle.fill")
                                 .font(.system(size: 54)).foregroundStyle(.cyan)
-                                .frame(width: 72, height: 72)
+                                .frame(maxWidth: .infinity).frame(height: collectionGrid ? 134 : 100)
                         }
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(artist).font(.headline).foregroundStyle(.white)
+                            Text(artist).font(.headline).foregroundStyle(.white).lineLimit(2).truncationMode(.tail).frame(height: 43, alignment: .topLeading)
                             Text("\(songs.count) songs").font(.subheadline).foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: collectionGrid ? 230 : 190, alignment: .top)
                     .padding(10)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
+                    Button { togglePin(artist, artist: true) } label: {
+                        Label(pinned(pinnedArtistsJSON).contains(artist) ? "Unpin Artist" : "Pin Artist", systemImage: "pin")
+                    }
                     Button { editingArtist = MusixArtistSelection(name: artist) } label: { Label("Edit Artist Cover", systemImage: "photo") }
                     Button { MusixArtistCoverSearch.open(artist) } label: { Label("Search Artist Photo", systemImage: "magnifyingglass") }
                     if artistCovers.hasCover(for: artist) {
@@ -382,32 +512,41 @@ struct ContentView: View {
             track.album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unknown Album" : track.album
         }
         return LazyVGrid(columns: collectionGrid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
-            ForEach(groups.keys.sorted(), id: \.self) { album in
+            ForEach(groups.keys.sorted { a, b in
+                let pins = pinned(pinnedAlbumsJSON)
+                if pins.contains(a) != pins.contains(b) { return pins.contains(a) }
+                return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+            }, id: \.self) { album in
                 let songs = groups[album] ?? []
                 NavigationLink {
                     MusixAlbumCollectionView(album: album, songs: songs).environmentObject(p)
                 } label: {
-                    HStack(spacing: collectionGrid ? 7 : 14) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        if !collectionGrid { EmptyView() }
                         if let art = albumCovers.cover(for: album) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
-                            Artwork(data: art).frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 14))
+                            Artwork(data: art).frame(maxWidth: .infinity).frame(height: collectionGrid ? 134 : 100).clipped().clipShape(RoundedRectangle(cornerRadius: 14))
                         } else {
                             Image(systemName: "square.stack.fill")
                                 .font(.system(size: 48)).foregroundStyle(.cyan)
-                                .frame(width: 72, height: 72)
+                                .frame(maxWidth: .infinity).frame(height: collectionGrid ? 134 : 100)
                         }
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(album).font(.headline).foregroundStyle(.white)
+                            Text(album).font(.headline).foregroundStyle(.white).lineLimit(2).truncationMode(.tail).frame(height: 43, alignment: .topLeading)
                             Text(songs.first?.artist ?? "Unknown Artist").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                             Text("\(songs.count) songs").font(.caption).foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: collectionGrid ? 230 : 190, alignment: .top)
                     .padding(10)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
+                    Button { togglePin(album, artist: false) } label: {
+                        Label(pinned(pinnedAlbumsJSON).contains(album) ? "Unpin Album" : "Pin Album", systemImage: "pin")
+                    }
                     Button { editingAlbum = MusixArtistSelection(name: album) } label: { Label("Add / Replace Album Image", systemImage: "photo") }
                     Button { MusixAlbumCoverSearch.open(album) } label: { Label("Search Album Image", systemImage: "magnifyingglass") }
                     if albumCovers.hasCover(for: album) {
@@ -764,21 +903,36 @@ struct LibraryMusicSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var showPlayer: Bool
     @State private var query = ""
+    @State private var genreFilter = "All Genres"
+    @State private var favoritesOnly = false
 
     private var results: [Track] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return p.tracks }
         return p.tracks.filter { track in
-            track.title.localizedCaseInsensitiveContains(q) ||
-            track.artist.localizedCaseInsensitiveContains(q) ||
-            track.album.localizedCaseInsensitiveContains(q) ||
-            track.url.lastPathComponent.localizedCaseInsensitiveContains(q)
+            (q.isEmpty || track.title.localizedCaseInsensitiveContains(q) ||
+             track.artist.localizedCaseInsensitiveContains(q) ||
+             track.album.localizedCaseInsensitiveContains(q) ||
+             track.genre.localizedCaseInsensitiveContains(q) ||
+             track.releaseDate.localizedCaseInsensitiveContains(q) ||
+             track.url.lastPathComponent.localizedCaseInsensitiveContains(q)) &&
+            (genreFilter == "All Genres" || track.genre == genreFilter) &&
+            (!favoritesOnly || p.isFavorite(track))
         }
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                HStack {
+                    Picker("Genre", selection: $genreFilter) {
+                        Text("All Genres").tag("All Genres")
+                        ForEach(Array(Set(p.tracks.map(\.genre).filter { !$0.isEmpty })).sorted(), id: \.self) { genre in
+                            Text(genre).tag(genre)
+                        }
+                    }
+                    Toggle("Favorites", isOn: $favoritesOnly).labelsHidden()
+                    Image(systemName: "heart.fill").foregroundStyle(.secondary)
+                }.padding(.horizontal)
                     List(results) { track in
                 Button {
                     p.play(track, queue: results)
@@ -922,6 +1076,13 @@ private struct NativeDocumentImporter: UIViewControllerRepresentable {
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             onCancel()
         }
+    }
+}
+
+private struct MusixVisibleLettersKey: PreferenceKey {
+    static var defaultValue: [UUID: (CGFloat, String)] = [:]
+    static func reduce(value: inout [UUID: (CGFloat, String)], nextValue: () -> [UUID: (CGFloat, String)]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
 }
 
@@ -1276,5 +1437,25 @@ private struct MusixPlayingBars: View {
             }.frame(width: 15, height: 20)
         }
         .accessibilityLabel(active ? "Now playing" : "Paused")
+    }
+}
+
+private struct MusixLibraryOverview: View {
+    let tracks: [Track]
+    let onFindMissing: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            List {
+                LabeledContent("Songs", value: "\(tracks.count)")
+                LabeledContent("Artists", value: "\(Set(tracks.map(\.artist)).count)")
+                LabeledContent("Albums", value: "\(Set(tracks.map(\.album)).count)")
+                LabeledContent("Missing Artwork", value: "\(tracks.filter { $0.artworkData == nil }.count)")
+                Button("Find Songs Missing Artwork", action: onFindMissing)
+                Section { Text("Music is stored in the app's documents folder. Back up your library before uninstalling Musix.").font(.footnote).foregroundStyle(.secondary) }
+            }
+            .navigationTitle("Library Overview")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }.preferredColorScheme(.dark)
     }
 }

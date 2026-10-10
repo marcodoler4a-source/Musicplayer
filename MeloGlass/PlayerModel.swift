@@ -405,7 +405,11 @@ import ImageIO
                 }
                 let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
                 let magnitude = sqrt(power) / Float(max(1, count))
-                levels[index] = CGFloat(min(1.0, max(0.025, Double(magnitude) * 22.0)))
+                // dB-domain mapping makes normal music levels visible; linear
+                // scaling previously pinned virtually every band to 0.025.
+                let db = 20.0 * log10(max(Double(magnitude), 1e-8))
+                let normalized = (db + 75.0) / 55.0
+                levels[index] = CGFloat(min(1.0, max(0.025, normalized)))
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.visualizerVisible, !self.batterySaver else { return }
