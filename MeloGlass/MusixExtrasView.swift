@@ -417,6 +417,16 @@ private struct MusixAudioVisualizer: View {
                 }
                 Text("Live frequency spectrum from the audio output")
                     .font(.caption).foregroundStyle(.secondary)
+                VStack(spacing: 4) {
+                    Text(p.visualizerSignalStatus)
+                    Text("Signal: \(String(format: "%.5f", p.visualizerSignalLevel))  •  Tap callbacks: \(p.visualizerTapUpdates)")
+                    if p.batterySaver {
+                        Text("Battery Saver is on; visualizer monitoring remains enabled")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 Button(p.isPlaying ? "Pause" : "Play") { p.toggle() }
                     .buttonStyle(.borderedProminent)
                 Spacer(minLength: 0)

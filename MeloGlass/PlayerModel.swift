@@ -160,6 +160,9 @@ import ImageIO
     @Published var batterySaver = UserDefaults.standard.bool(forKey: "musixBatterySaver")
     @Published var lowMemoryMode = UserDefaults.standard.bool(forKey: "musixLowMemoryMode")
     @Published var visualizerVisible = false
+    @Published private(set) var visualizerSignalStatus = "Waiting for audio samples"
+    @Published private(set) var visualizerSignalLevel: Double = 0
+    @Published private(set) var visualizerTapUpdates: Int = 0
     func setBatterySaver(_ enabled: Bool) { batterySaver = enabled; UserDefaults.standard.set(enabled, forKey: "musixBatterySaver") }
     func setLowMemoryMode(_ enabled: Bool) { lowMemoryMode = enabled; UserDefaults.standard.set(enabled, forKey: "musixLowMemoryMode"); if enabled { artworkCache.removeAllObjects() } }
     private let artworkCache = NSCache<NSString, UIImage>()
@@ -382,14 +385,17 @@ import ImageIO
         // Tap the processed player signal BEFORE the output mixer. The main mixer
         // tap could remain silent on some routes, and hostTime is not guaranteed
         // to advance in every render callback (notably on some iOS devices).
-        let meterNode = timePitch
+        let meterNode = crossfadeMixer
         let meterLock = NSLock()
         var meterFrames = 0
+        var tapCallbacks = 0
         meterNode.installTap(onBus: 0, bufferSize: 2048, format: meterNode.outputFormat(forBus: 0)) { [weak self] buffer, _ in
             meterLock.lock()
             meterFrames += Int(buffer.frameLength)
+            tapCallbacks += 1
             let publishEvery = Int(max(8000, buffer.format.sampleRate) / 20.0)
             let shouldPublish = meterFrames >= publishEvery
+            let callbackCount = tapCallbacks
             if shouldPublish { meterFrames = 0 }
             meterLock.unlock()
             guard shouldPublish, let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
@@ -398,6 +404,12 @@ import ImageIO
             // Unlike time-slice RMS, each bar represents a different pitch band.
             let count = Int(buffer.frameLength)
             let sampleRate = max(8000.0, buffer.format.sampleRate)
+            var sumSquares: Double = 0
+            for sampleIndex in 0..<count {
+                let sample = Double(samples[sampleIndex])
+                sumSquares += sample * sample
+            }
+            let rms = sqrt(sumSquares / Double(max(1, count)))
             let frequencies: [Double] = (0..<20).map { index in
                 55.0 * pow(14000.0 / 55.0, Double(index) / 19.0)
             }
@@ -418,11 +430,16 @@ import ImageIO
                 // dB-domain mapping makes normal music levels visible; linear
                 // scaling previously pinned virtually every band to 0.025.
                 let db = 20.0 * log10(max(Double(magnitude), 1e-8))
-                let normalized = (db + 76.0) / 57.0
+                let normalized = (db + 94.0) / 65.0
                 levels[index] = CGFloat(min(1.0, max(0.025, normalized)))
             }
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.visualizerVisible, !self.batterySaver else { return }
+                guard let self, self.visualizerVisible else { return }
+                self.visualizerTapUpdates = callbackCount
+                self.visualizerSignalLevel = rms
+                self.visualizerSignalStatus = rms > 0.00001
+                    ? "Audio received (\(Int(sampleRate)) Hz)"
+                    : "Tap active, but signal is silent"
                 self.audioLevels = self.isPlaying ? levels : Array(repeating: 0.025, count: 20)
             }
         }

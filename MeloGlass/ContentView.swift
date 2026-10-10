@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var showLibraryFilterActions = false
     @State private var showSearch = false
     @State private var showLibrarySearch = false
+    @State private var showCustomizeLibrary = false
     @State private var musicInfoTarget: Track?
     @State private var tagEditTarget: Track?
     @State private var swipeOptionsTarget: Track?
@@ -125,7 +126,8 @@ struct ContentView: View {
             if p.current != nil && showMiniPlayer && tab != 5 {
                 MiniPlayer()
                     .onTapGesture { showPlayer = true }
-                    .padding(.bottom, 49)
+                    // V117: leave a visible 12-point gap above the bottom tab bar.
+                    .padding(.bottom, 61)
             }
         }
         .fullScreenCover(isPresented: $showPlayer) {
@@ -173,6 +175,34 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSearch) {
             MusicInfoSearchView(target: musicInfoTarget).environmentObject(p)
+        }
+        .sheet(isPresented: $showCustomizeLibrary) {
+            NavigationStack {
+                Form {
+                    Section {
+                        Toggle("Continue Listening", isOn: $showContinue)
+                        Toggle("Library Overview", isOn: $showOverview)
+                    } header: {
+                        Text("Library Sections")
+                    } footer: {
+                        Text("Hidden sections can always be enabled here. Your songs and listening history are not deleted.")
+                    }
+                    Section {
+                        Button("Show All Sections") {
+                            showContinue = true
+                            showOverview = true
+                        }
+                    }
+                }
+                .navigationTitle("Customize Library")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showCustomizeLibrary = false }
+                    }
+                }
+            }
+            .preferredColorScheme(.dark)
         }
         .sheet(isPresented: $showLibrarySearch) {
             LibraryMusicSearchView(showPlayer: $showPlayer).environmentObject(p)
@@ -712,6 +742,7 @@ struct ContentView: View {
                 libraryFilter: $libraryFilter,
                 tab: $tab,
                 showLibrarySearch: $showLibrarySearch,
+                showCustomizeLibrary: $showCustomizeLibrary,
                 showSleepTimer: $showSleepTimer,
                 showQueue: $showQueue
             )
@@ -1602,6 +1633,7 @@ private struct LibraryStableOptionsMenu: View {
     @Binding var libraryFilter: String
     @Binding var tab: Int
     @Binding var showLibrarySearch: Bool
+    @Binding var showCustomizeLibrary: Bool
     @Binding var showSleepTimer: Bool
     @Binding var showQueue: Bool
 
@@ -1612,6 +1644,7 @@ private struct LibraryStableOptionsMenu: View {
                 if !selectMode { selectedIDs.removeAll() }
             }
             Button("Search Music Files", systemImage: "magnifyingglass") { showLibrarySearch = true }
+            Button("Customize Library", systemImage: "slider.horizontal.3") { showCustomizeLibrary = true }
             Menu("Sort", systemImage: "arrow.up.arrow.down") {
                 ForEach(LibrarySort.allCases) { option in
                     Button {
