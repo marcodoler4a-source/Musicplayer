@@ -37,6 +37,11 @@ struct ContentView: View {
     @AppStorage("musixV102PinnedAlbums") private var pinnedAlbumsJSON = "[]"
     @State private var searchGenre = "All Genres"
     @State private var searchFavorites = false
+    @State private var favoritesOrder = "Title"
+    @State private var recentOrder = "Newest"
+    @State private var albumOrder = "Title"
+    @State private var favoritesQuery = ""
+
     @State private var showMissingArtwork = false
     @State private var showStorageOverview = false
     @StateObject private var artistCovers = MusixArtistCoverStore.shared
@@ -707,80 +712,165 @@ struct ContentView: View {
         }
     }
 
+    // V126: consistent collection dashboards, without changing playback or storage logic.
+    private func collectionHero(_ title: String, subtitle: String, symbol: String, count: Int, unit: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(accent)
+                .frame(width: 56, height: 56)
+                .background(accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 16))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(.title3.bold())
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(count)").font(.title2.bold()).monospacedDigit()
+                Text(unit).font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .padding(.horizontal)
+    }
+
+    private func collectionTitle(_ title: String, subtitle: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.title3.bold())
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+    }
+
     private var favorites: some View {
-        NavigationStack {
+        let allFavorites = p.tracks.filter { p.isFavorite($0) }
+        let matching = allFavorites.filter { favoritesQuery.isEmpty || $0.title.localizedCaseInsensitiveContains(favoritesQuery) || $0.artist.localizedCaseInsensitiveContains(favoritesQuery) || $0.album.localizedCaseInsensitiveContains(favoritesQuery) }
+        let favs = matching.sorted { lhs, rhs in
+            switch favoritesOrder {
+            case "Artist": return lhs.artist.localizedCaseInsensitiveCompare(rhs.artist) == .orderedAscending
+            case "Album": return lhs.album.localizedCaseInsensitiveCompare(rhs.album) == .orderedAscending
+            default: return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+        }
+        return NavigationStack {
             ZStack {
                 background
                 VStack(spacing: 12) {
-                    header("Favorites", subtitle: "The songs you love.")
+                    header("Favorites", subtitle: "Your starred music.", count: allFavorites.count)
                     ScrollView {
                         VStack(spacing: 16) {
-                            let favs = sortedTracks.filter { p.isFavorite($0) }
+                            collectionHero("Your Favorites", subtitle: "All your starred songs in one place", symbol: "star.fill", count: allFavorites.count, unit: "songs")
+                            if !allFavorites.isEmpty {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                                    TextField("Find a favorite", text: $favoritesQuery)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled()
+                                }
+                                .padding(12)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 13))
+                                .padding(.horizontal)
+                                HStack {
+                                    Text("STARRED SONGS").font(.caption.bold()).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Menu {
+                                        ForEach(["Title", "Artist", "Album"], id: \.self) { option in
+                                            Button { favoritesOrder = option } label: {
+                                                Label(option, systemImage: favoritesOrder == option ? "checkmark" : "arrow.up.arrow.down")
+                                            }
+                                        }
+                                    } label: {
+                                        Label(favoritesOrder, systemImage: "arrow.up.arrow.down")
+                                            .font(.subheadline.weight(.medium))
+                                    }
+                                }.padding(.horizontal)
+                            }
                             if favs.isEmpty {
-                                empty("star", "No favorites yet", "Tap the star beside a song to add it here.")
+                                empty("star", allFavorites.isEmpty ? "No favorites yet" : "No matching favorites", allFavorites.isEmpty ? "Tap the star beside a song to add it here." : "Try another search.")
                             } else {
                                 LazyVStack(spacing: compactRows ? 5 : 10) {
                                     ForEach(favs) { track in trackRow(track, queue: favs) }
-                                }
-                                .padding(.horizontal)
+                                }.padding(.horizontal)
                             }
-                        }
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
+                        }.padding(.top, 8).padding(.bottom, 20)
                     }
                 }
-            }
-            .toolbar(.hidden, for: .navigationBar)
+            }.toolbar(.hidden, for: .navigationBar)
         }
     }
 
     private var recent: some View {
-        NavigationStack {
+        let recentTracks = recentOrder == "Oldest" ? p.tracks : Array(p.tracks.reversed())
+        return NavigationStack {
             ZStack {
                 background
                 VStack(spacing: 12) {
-                    header("Recent", subtitle: "Recently added to your library.")
+                    header("Recent", subtitle: "New additions to your library.", count: p.tracks.count)
                     ScrollView {
                         VStack(spacing: 16) {
-                            let recentTracks = Array(p.tracks.reversed())
+                            collectionHero("Recently Added", subtitle: "Music in import order", symbol: "clock.arrow.circlepath", count: p.tracks.count, unit: "in library")
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("IMPORTED SONGS").font(.caption.bold()).foregroundStyle(.secondary)
+                                    Text("Most recently imported first").font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Menu {
+                                    Button { recentOrder = "Newest" } label: { Label("Newest First", systemImage: recentOrder == "Newest" ? "checkmark" : "arrow.down") }
+                                    Button { recentOrder = "Oldest" } label: { Label("Oldest First", systemImage: recentOrder == "Oldest" ? "checkmark" : "arrow.up") }
+                                } label: {
+                                    Label(recentOrder == "Newest" ? "Newest" : "Oldest", systemImage: "arrow.up.arrow.down")
+                                        .font(.subheadline.weight(.medium))
+                                }
+                            }.padding(.horizontal)
                             if recentTracks.isEmpty {
                                 empty("clock", "No recent music", "Imported songs will appear here.")
                             } else {
                                 LazyVStack(spacing: compactRows ? 5 : 10) {
                                     ForEach(recentTracks) { track in trackRow(track, queue: recentTracks) }
-                                }
-                                .padding(.horizontal)
+                                }.padding(.horizontal)
                             }
-                        }
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
+                        }.padding(.top, 8).padding(.bottom, 20)
                     }
                 }
-            }
-            .toolbar(.hidden, for: .navigationBar)
+            }.toolbar(.hidden, for: .navigationBar)
         }
     }
 
     private var albumsTab: some View {
-        NavigationStack {
+        let albums = Set(p.tracks.map { $0.album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unknown Album" : $0.album })
+        return NavigationStack {
             ZStack {
                 background
                 VStack(spacing: 12) {
-                    header("Albums", subtitle: "Browse your music by album.")
+                    header("Albums", subtitle: "Explore your album collection.", count: albums.count)
                     ScrollView {
                         VStack(spacing: 16) {
+                            collectionHero("Album Collection", subtitle: "Browse artwork and complete records", symbol: "square.stack.fill", count: albums.count, unit: "albums")
+                            HStack {
+                                Text("YOUR ALBUMS").font(.caption.bold()).foregroundStyle(.secondary)
+                                Spacer()
+                                Menu {
+                                    Button { collectionGrid = true } label: { Label("Grid View", systemImage: collectionGrid ? "checkmark" : "square.grid.2x2") }
+                                    Button { collectionGrid = false } label: { Label("Large Cards", systemImage: !collectionGrid ? "checkmark" : "rectangle.grid.1x2") }
+                                } label: {
+                                    Label(collectionGrid ? "Grid" : "Cards", systemImage: "square.grid.2x2")
+                                        .font(.subheadline.weight(.medium))
+                                }
+                            }.padding(.horizontal)
                             if p.tracks.isEmpty {
                                 empty("square.stack", "No albums yet", "Import music to build your album library.")
                             } else {
                                 albumLibrary
                             }
-                        }
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
+                        }.padding(.top, 8).padding(.bottom, 20)
                     }
                 }
-            }
-            .toolbar(.hidden, for: .navigationBar)
+            }.toolbar(.hidden, for: .navigationBar)
         }
     }
 
