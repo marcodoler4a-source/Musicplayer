@@ -165,7 +165,7 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) { swipeOptionsTarget = nil }
         }
-        .onChange(of: swipeOptionsTarget?.id) { _, newValue in
+        .onChange(of: swipeOptionsTarget?.id) { newValue in
             if newValue == nil { withAnimation(.easeOut(duration: 0.2)) { revealedSwipeSongID = nil } }
         }
         .sheet(item: $tagEditTarget) { song in
