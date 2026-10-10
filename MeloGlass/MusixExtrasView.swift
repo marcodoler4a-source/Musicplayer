@@ -3,8 +3,29 @@ import SwiftUI
 struct MusixExtrasView: View {
     @EnvironmentObject var p: PlayerModel
     @State private var name = ""
+    @AppStorage("musixPlaylistFolders") private var folderData = "{}"
+    @State private var newFolder = ""
+    @State private var folderNames: [String] = []
+    private var folderAssignments: [String: String] {
+        (try? JSONDecoder().decode([String: String].self, from: Data(folderData.utf8))) ?? [:]
+    }
+    private func assign(_ playlist: MusixPlaylist, to folder: String) {
+        var map = folderAssignments
+        if folder == "Unfiled" { map.removeValue(forKey: playlist.id.uuidString) }
+        else { map[playlist.id.uuidString] = folder }
+        if let data = try? JSONEncoder().encode(map), let value = String(data: data, encoding: .utf8) { folderData = value }
+    }
+    @AppStorage("musixFolderNames") private var savedFolders = "[]"
+    private var folders: [String] { (try? JSONDecoder().decode([String].self, from: Data(savedFolders.utf8))) ?? [] }
+    private func addFolder() {
+        let value = newFolder.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !folders.contains(value) else { return }
+        if let data = try? JSONEncoder().encode(folders + [value]), let text = String(data: data, encoding: .utf8) { savedFolders = text }
+        newFolder = ""
+    }
+
     @State private var selectedPlaylist: UUID?
-    @State private var section = 0
+    @AppStorage("musixMoreSection") private var section = 5
     @State private var message = ""
     @State private var duplicates: [[Track]] = []
     @State private var showKaraoke = false
@@ -15,9 +36,11 @@ struct MusixExtrasView: View {
                 // V78: Surface the restored features without hiding them in Tools.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 9) {
+                        quickFeature("Settings", icon: "gearshape.fill", section: 5)
                         quickFeature("Backup & Restore", icon: "externaldrive", section: 3)
                         quickFeature("Duplicate Finder", icon: "doc.on.doc", section: 3)
                         quickFeature("Statistics", icon: "chart.bar", section: 2)
+                        quickFeature("Dashboard", icon: "square.grid.2x2.fill", section: 4)
                         Button { showKaraoke = true } label: {
                             Label("Karaoke Lyrics", systemImage: "text.quote")
                         }.buttonStyle(.bordered)
@@ -28,13 +51,38 @@ struct MusixExtrasView: View {
                     }.padding(.horizontal).padding(.vertical, 10)
                 }
                 Picker("View", selection: $section) {
+                    Text("Settings").tag(5)
                     Text("Playlists").tag(0)
                     Text("Up Next").tag(1)
                     Text("Statistics").tag(2)
                     Text("Tools").tag(3)
+                    Text("Home").tag(4)
                 }.pickerStyle(.segmented).padding()
+                if section == 5 {
+                    AppearanceSettingsView()
+                } else {
                 List {
-                    if section == 0 {
+                    if section == 4 {
+                        Section("Your Library") {
+                            HStack { Label("Songs", systemImage: "music.note"); Spacer(); Text("\(p.tracks.count)") }
+                            HStack { Label("Artists", systemImage: "person.2"); Spacer(); Text("\(Set(p.tracks.map(\.artist)).count)") }
+                            HStack { Label("Albums", systemImage: "square.stack"); Spacer(); Text("\(Set(p.tracks.map(\.album)).count)") }
+                        }
+                        Section("Recently Added") {
+                            ForEach(Array(p.tracks.suffix(8).reversed())) { track in
+                                Button { p.play(track, queue: p.tracks) } label: {
+                                    HStack { Text(track.title).lineLimit(1); Spacer(); Image(systemName: "play.fill") }
+                                }
+                            }
+                        }
+                        Section("Most Played") {
+                            ForEach(Array(p.smartTracks(.mostPlayed).prefix(8))) { track in
+                                Button { p.play(track, queue: p.tracks) } label: {
+                                    HStack { Text(track.title).lineLimit(1); Spacer(); Text("\(p.playCounts[track.id, default: 0]) plays").font(.caption) }
+                                }
+                            }
+                        }
+                    } else if section == 0 {
                         Section("Create playlist") {
                             HStack {
                                 TextField("Playlist name", text: $name)
@@ -55,11 +103,36 @@ struct MusixExtrasView: View {
                                 }
                             }
                         }
+                        Section("Playlist Folders") {
+                            HStack {
+                                TextField("New folder", text: $newFolder)
+                                Button("Create") { addFolder() }.disabled(newFolder.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                            ForEach(folders, id: \.self) { folder in
+                                NavigationLink {
+                                    List {
+                                        ForEach(p.playlists.filter { folderAssignments[$0.id.uuidString] == folder }) { playlist in
+                                            NavigationLink(playlist.name) { MusixPlaylistDetail(playlistID: playlist.id) }
+                                        }
+                                    }.navigationTitle(folder)
+                                } label: { Label(folder, systemImage: "folder.fill") }
+                            }
+                        }
                         ForEach(p.playlists) { playlist in
                             NavigationLink {
                                 MusixPlaylistDetail(playlistID: playlist.id)
                             } label: {
-                                Label(playlist.name, systemImage: "music.note.list")
+                                HStack {
+                                    Label(playlist.name, systemImage: "music.note.list")
+                                    Spacer()
+                                    Text(folderAssignments[playlist.id.uuidString] ?? "Unfiled").font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                            .contextMenu {
+                                Button("Unfiled") { assign(playlist, to: "Unfiled") }
+                                ForEach(folders, id: \.self) { folder in
+                                    Button("Move to \(folder)") { assign(playlist, to: folder) }
+                                }
                             }
                         }.onDelete { offsets in
                             for i in offsets { p.deletePlaylist(p.playlists[i].id) }
@@ -132,8 +205,9 @@ struct MusixExtrasView: View {
                         if !message.isEmpty { Section("Result") { Text(message) } }
                     }
                 }.listStyle(.insetGrouped)
+                }
             }
-            .navigationTitle("My Music")
+            .navigationTitle("More")
             .fullScreenCover(isPresented: $showKaraoke) { MusixKaraokeView() }
             .sheet(isPresented: $showVisualizer) { MusixAudioVisualizer() }
         }
@@ -295,21 +369,57 @@ struct MusixKaraokeView: View {
 private struct MusixAudioVisualizer: View {
     @EnvironmentObject var p: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("musixCircularVisualizer") private var circular = false
+    private let spectrum = LinearGradient(colors: [.blue, .purple, .pink], startPoint: .bottom, endPoint: .top)
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 28) {
-                Text(p.current?.title ?? "No song playing").font(.headline).lineLimit(2)
-                GeometryReader { proxy in
-                    HStack(alignment: .center, spacing: 3) {
-                        ForEach(p.audioLevels.indices, id: \.self) { i in
-                            Capsule().fill(LinearGradient(colors: [.blue, .purple, .pink], startPoint: .bottom, endPoint: .top))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: max(5, proxy.size.height * p.audioLevels[i]))
+            VStack(spacing: 24) {
+                Picker("Visualizer Style", selection: $circular) {
+                    Text("Spectrum").tag(false)
+                    Text("Circular").tag(true)
+                }.pickerStyle(.segmented)
+                Text(p.current?.title ?? "No song playing")
+                    .font(.headline).lineLimit(2)
+                if circular {
+                    GeometryReader { proxy in
+                        let side = min(proxy.size.width, proxy.size.height)
+                        ZStack {
+                            Circle().fill(.ultraThinMaterial).frame(width: side * 0.48, height: side * 0.48)
+                            if let data = p.current?.artworkData, let picture = UIImage(data: data) {
+                                Image(uiImage: picture).resizable().scaledToFill()
+                                    .frame(width: side * 0.45, height: side * 0.45)
+                                    .clipShape(Circle())
+                            } else {
+                                Image(systemName: "music.note").font(.system(size: 50)).foregroundStyle(.secondary)
+                            }
+                            ForEach(0..<20, id: \.self) { index in
+                                Capsule().fill(spectrum)
+                                    .frame(width: 8, height: 14 + CGFloat(p.audioLevels.indices.contains(index) ? p.audioLevels[index] : 0) * side * 0.20)
+                                    .offset(y: -side * 0.34)
+                                    .rotationEffect(.degrees(Double(index) * 18))
+                            }
                         }
-                    }.frame(maxHeight: .infinity)
-                }.frame(height: 180)
-                Text("Live waveform energy from the playing audio").font(.caption).foregroundStyle(.secondary)
-                Button(p.isPlaying ? "Pause" : "Play") { p.toggle() }.buttonStyle(.borderedProminent)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .animation(.linear(duration: 0.10), value: p.audioLevels)
+                    }.frame(height: 300)
+                } else {
+                    GeometryReader { proxy in
+                        HStack(alignment: .center, spacing: 4) {
+                            ForEach(0..<20, id: \.self) { index in
+                                Capsule().fill(spectrum)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: max(5, proxy.size.height * (p.audioLevels.indices.contains(index) ? p.audioLevels[index] : 0.025)))
+                            }
+                        }.frame(maxHeight: .infinity)
+                        .animation(.linear(duration: 0.10), value: p.audioLevels)
+                    }.frame(height: 190)
+                }
+                Text("Live frequency spectrum from the audio output")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(p.isPlaying ? "Pause" : "Play") { p.toggle() }
+                    .buttonStyle(.borderedProminent)
+                Spacer(minLength: 0)
             }.padding(24)
             .navigationTitle("Audio Visualizer")
             .onAppear { p.visualizerVisible = true }

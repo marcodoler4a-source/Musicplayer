@@ -172,8 +172,7 @@ struct AppearanceSettingsView: View {
     @AppStorage("showLyricsOverlay") private var showLyricsOverlay = true
     @AppStorage("progressLightingEnabled") private var progressLightingEnabled = true
     var body: some View {
-        NavigationStack {
-            Form {
+        Form {
                 Section("Appearance") {
                     Picker("Accent",selection:$accentChoice){ Text("Blue").tag("Blue"); Text("Purple").tag("Purple"); Text("Green").tag("Green"); Text("Pink").tag("Pink") }
                     Toggle("Show album artwork",isOn:$showArtwork)
@@ -242,7 +241,6 @@ struct AppearanceSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-            }.navigationTitle("Customize")
-        }
+            }.navigationTitle("Settings")
     }
 }

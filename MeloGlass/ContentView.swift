@@ -30,6 +30,8 @@ struct ContentView: View {
     @State private var editingAlbum: MusixArtistSelection?
     @StateObject private var albumCovers = MusixAlbumCoverStore.shared
     @AppStorage("libraryGridMode") private var gridMode = false
+    @AppStorage("musixCollectionGrid") private var collectionGrid = true
+    @AppStorage("musixAlwaysShowAlphabet") private var alwaysShowAlphabet = true
 
     @AppStorage("compactRows") private var compactRows = false
     @AppStorage("showArtwork") private var showArtwork = true
@@ -90,15 +92,11 @@ struct ContentView: View {
 
                 MusixExtrasView()
                     .tag(5)
-                    .tabItem { Label("My Music", systemImage: "music.note.house") }
-
-                AppearanceSettingsView()
-                    .tag(4)
-                    .tabItem { Label("Settings", systemImage: "slider.horizontal.3") }
+                    .tabItem { Label("More", systemImage: "ellipsis.circle.fill") }
             }
             .tint(accent)
 
-            if p.current != nil && showMiniPlayer && tab != 4 {
+            if p.current != nil && showMiniPlayer && tab != 5 {
                 MiniPlayer()
                     .onTapGesture { showPlayer = true }
                     .padding(.bottom, 49)
@@ -282,7 +280,7 @@ struct ContentView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
                     }
                     .overlay(alignment: .trailing) {
-                        if showAlphabetIndex && librarySection == "Songs" && !gridMode {
+                        if (showAlphabetIndex || alwaysShowAlphabet) && librarySection == "Songs" && !gridMode {
                             alphabetIndex(proxy: proxy)
                                 .transition(.opacity)
                                 .padding(.trailing, 7)
@@ -338,14 +336,14 @@ struct ContentView: View {
         let groups = Dictionary(grouping: sortedTracks) { track in
             track.artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unknown Artist" : track.artist
         }
-        return LazyVStack(spacing: 12) {
+        return LazyVGrid(columns: collectionGrid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
             ForEach(groups.keys.sorted(), id: \.self) { artist in
                 let songs = groups[artist] ?? []
                 NavigationLink {
                     MusixArtistCollectionView(artist: artist, songs: songs)
                         .environmentObject(p)
                 } label: {
-                    HStack(spacing: 14) {
+                    HStack(spacing: collectionGrid ? 7 : 14) {
                         if let art = artistCovers.cover(for: artist) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
                             Artwork(data: art).frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 14))
                         } else {
@@ -383,13 +381,13 @@ struct ContentView: View {
         let groups = Dictionary(grouping: sortedTracks) { track in
             track.album.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unknown Album" : track.album
         }
-        return LazyVStack(spacing: 12) {
+        return LazyVGrid(columns: collectionGrid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
             ForEach(groups.keys.sorted(), id: \.self) { album in
                 let songs = groups[album] ?? []
                 NavigationLink {
                     MusixAlbumCollectionView(album: album, songs: songs).environmentObject(p)
                 } label: {
-                    HStack(spacing: 14) {
+                    HStack(spacing: collectionGrid ? 7 : 14) {
                         if let art = albumCovers.cover(for: album) ?? songs.first(where: { $0.artworkData != nil })?.artworkData {
                             Artwork(data: art).frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 14))
                         } else {
@@ -712,6 +710,9 @@ struct ContentView: View {
                         }
                     }
                     Spacer()
+                    if p.current?.id == t.id {
+                        MusixPlayingBars(active: p.isPlaying)
+                    }
                 }
             }
             .buttonStyle(.plain)
@@ -1200,10 +1201,15 @@ private struct LibraryStableOptionsMenu: View {
             Button(gridMode ? "List" : "Grid", systemImage: gridMode ? "list.bullet" : "square.grid.2x2") {
                 gridMode.toggle()
             }
+            Button(collectionGrid ? "Collection List" : "Collection Grid", systemImage: collectionGrid ? "list.bullet" : "square.grid.2x2") { collectionGrid.toggle() }
+            Button(alwaysShowAlphabet ? "Hide A–Z Index" : "Always Show A–Z", systemImage: "textformat.abc") { alwaysShowAlphabet.toggle() }
             Divider()
             Button("Sleep Timer", systemImage: "moon") { showSleepTimer = true }
             Button("Up Next Queue", systemImage: "text.line.first.and.arrowtriangle.forward") { showQueue = true }
-            Button("Settings", systemImage: "gearshape") { tab = 4 }
+            Button("Settings", systemImage: "gearshape") {
+                UserDefaults.standard.set(5, forKey: "musixMoreSection")
+                tab = 5
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.title3)
@@ -1251,5 +1257,22 @@ private struct MusixStableSongOptionsMenu: View {
         .buttonStyle(.plain)
         .transaction { $0.animation = nil }
         .accessibilityLabel("Song options")
+    }
+}
+
+// V100: Low-cost indicator only instantiated for the active song.
+private struct MusixPlayingBars: View {
+    let active: Bool
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.22, paused: !active)) { timeline in
+            let phase = timeline.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(0..<3, id: \.self) { i in
+                    Capsule().fill(Color.cyan)
+                        .frame(width: 3, height: active ? 5 + 13 * abs(sin(phase * 4 + Double(i) * 1.4)) : 5)
+                }
+            }.frame(width: 15, height: 20)
+        }
+        .accessibilityLabel(active ? "Now playing" : "Paused")
     }
 }

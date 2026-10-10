@@ -383,15 +383,29 @@ import ImageIO
             if shouldPublish { lastMeterHostTime = when.hostTime }
             meterLock.unlock()
             guard shouldPublish, let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
+            // Frequency-sensitive spectrum: 20 logarithmically spaced Goertzel
+            // filters, computed only on throttled tap callbacks (~10 Hz).
+            // Unlike time-slice RMS, each bar represents a different pitch band.
             let count = Int(buffer.frameLength)
-            let width = max(1, count / 20)
-            let levels: [CGFloat] = (0..<20).map { index in
-                let start = index * width
-                let end = min(count, start + width)
-                guard start < end else { return 0.04 }
-                var energy: Float = 0
-                for i in start..<end { energy += samples[i] * samples[i] }
-                return CGFloat(min(1, max(0.04, sqrt(energy / Float(end - start)) * 3)))
+            let sampleRate = max(8000.0, buffer.format.sampleRate)
+            let frequencies: [Double] = (0..<20).map { index in
+                55.0 * pow(14000.0 / 55.0, Double(index) / 19.0)
+            }
+            var levels = [CGFloat](repeating: 0.025, count: 20)
+            for (index, frequency) in frequencies.enumerated() {
+                let omega = 2.0 * Double.pi * frequency / sampleRate
+                let coefficient = Float(2.0 * cos(omega))
+                var q1: Float = 0
+                var q2: Float = 0
+                for sampleIndex in 0..<count {
+                    let window = Float(0.5 - 0.5 * cos(2.0 * Double.pi * Double(sampleIndex) / Double(max(1, count - 1))))
+                    let q0 = samples[sampleIndex] * window + coefficient * q1 - q2
+                    q2 = q1
+                    q1 = q0
+                }
+                let power = max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2)
+                let magnitude = sqrt(power) / Float(max(1, count))
+                levels[index] = CGFloat(min(1.0, max(0.025, Double(magnitude) * 22.0)))
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.visualizerVisible, !self.batterySaver else { return }
