@@ -1252,9 +1252,10 @@ struct MusixQueueSheet: View {
                     }
                 }
             }
+            .environment(\.editMode, .constant(.active))
             .navigationTitle("Up Next")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
+                ToolbarItem(placement: .topBarLeading) { Text("Drag to reorder").font(.caption).foregroundStyle(.secondary) }
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
         }

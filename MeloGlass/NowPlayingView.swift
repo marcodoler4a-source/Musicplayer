@@ -473,6 +473,7 @@ struct EditAudioTagView: View {
 
 struct SpotifyInspiredBackground: View {
     let data: Data?
+    @State private var drifting = false
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -490,7 +491,10 @@ struct SpotifyInspiredBackground: View {
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .clipped()
                 .blur(radius: 55)
-                .scaleEffect(1.28)
+                .scaleEffect(drifting ? 1.46 : 1.22)
+                .offset(x: drifting ? 20 : -20, y: drifting ? -16 : 16)
+                .animation(.easeInOut(duration: 12).repeatForever(autoreverses: true), value: drifting)
+                .onAppear { drifting = true }
                 .opacity(0.72)
             }
             .ignoresSafeArea()
@@ -505,6 +509,7 @@ struct SpotifyInspiredBackground: View {
 }
 
 struct FullLyricsView: View {
+    @AppStorage("musixLyricsFontSize") private var lyricsFontSize = 28.0
     @EnvironmentObject var p: PlayerModel
     @Environment(\.dismiss) private var dismiss
 
@@ -532,7 +537,7 @@ struct FullLyricsView: View {
                                 ForEach(p.current?.lyrics ?? []) { line in
                                     let active = isActive(line)
                                     Text(line.text.isEmpty ? "♪" : line.text)
-                                        .font(active ? .title.bold() : .title2.weight(.semibold))
+                                        .font(.system(size: lyricsFontSize, weight: active ? .bold : .semibold))
                                         .foregroundStyle(active ? .white : .white.opacity(0.35))
                                         .id(line.id)
                                         .onTapGesture { p.seek(line.time) }
@@ -551,6 +556,11 @@ struct FullLyricsView: View {
             }
             .navigationTitle("Lyrics")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Menu {
+                Button("Smaller Text") { lyricsFontSize = max(16, lyricsFontSize - 2) }
+                Button("Larger Text") { lyricsFontSize = min(44, lyricsFontSize + 2) }
+                Button("Default Text Size") { lyricsFontSize = 28 }
+            } label: { Image(systemName: "textformat.size") } } }
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Done") { dismiss() } } }
         }
         .preferredColorScheme(.dark)

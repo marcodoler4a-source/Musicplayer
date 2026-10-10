@@ -204,7 +204,7 @@ import ImageIO
     @Published var crossfadeSeconds: Double = UserDefaults.standard.double(forKey: "musixCrossfadeSeconds")
     func setCrossfade(_ seconds: Double) { crossfadeSeconds = min(12, max(0, seconds)); UserDefaults.standard.set(crossfadeSeconds, forKey: "musixCrossfadeSeconds"); cancelTransition() }
     private let crossfadeMixer = AVAudioMixerNode()
-    private let equalizer = AVAudioUnitEQ(numberOfBands: 6)
+    private let equalizer = AVAudioUnitEQ(numberOfBands: 10)
     private let timePitch = AVAudioUnitTimePitch()
     private var audioFile: AVAudioFile?
     private var startFrame: AVAudioFramePosition = 0
@@ -385,7 +385,7 @@ import ImageIO
         mixer.installTap(onBus: 0, bufferSize: 2048, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, when in
             meterLock.lock()
             let shouldPublish = when.hostTime > lastMeterHostTime &&
-                AVAudioTime.seconds(forHostTime: when.hostTime - lastMeterHostTime) >= 0.10
+                AVAudioTime.seconds(forHostTime: when.hostTime - lastMeterHostTime) >= 0.055
             if shouldPublish { lastMeterHostTime = when.hostTime }
             meterLock.unlock()
             guard shouldPublish, let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
@@ -414,7 +414,7 @@ import ImageIO
                 // dB-domain mapping makes normal music levels visible; linear
                 // scaling previously pinned virtually every band to 0.025.
                 let db = 20.0 * log10(max(Double(magnitude), 1e-8))
-                let normalized = (db + 75.0) / 55.0
+                let normalized = (db + 88.0) / 65.0
                 levels[index] = CGFloat(min(1.0, max(0.025, normalized)))
             }
             DispatchQueue.main.async { [weak self] in
@@ -770,21 +770,26 @@ import ImageIO
     func eqBandGain(_ index: Int) -> Float { equalizer.bands.indices.contains(index) ? equalizer.bands[index].gain : 0 }
 
     private func applyEQPreset(_ preset: String) {
-        let freqs: [Float] = [60, 170, 500, 1500, 5000, 12000]
+        let freqs: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
         let gains: [Float]
         switch preset {
-        case "Bass Boost": gains = [8, 6, 3, 0, -1, -2]
-        case "Treble Boost": gains = [-2, -1, 0, 2, 6, 8]
-        case "Vocal": gains = [-2, 0, 2, 5, 4, 1]
-        case "Pop": gains = [3, 2, 0, 2, 4, 3]
-        case "Rock": gains = [5, 3, -1, 2, 4, 5]
-        case "Acoustic": gains = [2, 1, 0, 3, 4, 3]
-        case "Classical": gains = [3, 2, 0, 0, 2, 4]
-        case "Custom": gains = (0..<6).map { UserDefaults.standard.object(forKey: "eqBand\($0)") as? Float ?? 0 }
-        default: gains = Array(repeating: 0, count: 6)
+        case "Bass Boost": gains = [8, 8, 7, 5, 3, 1, 0, -1, -2, -2]
+        case "Treble Boost": gains = [-2, -2, -1, 0, 0, 1, 3, 5, 7, 8]
+        case "Vocal": gains = [-3, -2, -1, 0, 1, 3, 5, 4, 1, 0]
+        case "Pop": gains = [3, 3, 2, 0, -1, 1, 3, 4, 3, 2]
+        case "Rock": gains = [5, 4, 3, 1, -1, 0, 2, 3, 4, 4]
+        case "Acoustic": gains = [2, 2, 1, 0, 1, 2, 3, 3, 2, 1]
+        case "Classical": gains = [3, 2, 1, 0, 0, 0, 1, 2, 3, 4]
+        case "Custom": gains = (0..<10).map { UserDefaults.standard.object(forKey: "eqBand\($0)") as? Float ?? 0 }
+        default: gains = Array(repeating: 0, count: 10)
         }
-        for i in 0..<6 {
-            let band = equalizer.bands[i]; band.filterType = .parametric; band.frequency = freqs[i]; band.bandwidth = 1; band.gain = gains[i]; band.bypass = false
+        for i in 0..<10 {
+            let band = equalizer.bands[i]
+            band.filterType = .parametric
+            band.frequency = freqs[i]
+            band.bandwidth = 1
+            band.gain = gains[i]
+            band.bypass = false
         }
         equalizer.bypass = preset == "Off"
     }

@@ -189,7 +189,7 @@ struct AppearanceSettingsView: View {
                         }
                     }
                     if p.eqPreset == "Custom" {
-                        ForEach(Array(["60 Hz", "170 Hz", "500 Hz", "1.5 kHz", "5 kHz", "12 kHz"].enumerated()), id: \.offset) { index, label in
+                        ForEach(Array(["32 Hz", "64 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz"].enumerated()), id: \.offset) { index, label in
                             HStack {
                                 Text(label).frame(width: 62, alignment: .leading)
                                 Slider(value: Binding(
