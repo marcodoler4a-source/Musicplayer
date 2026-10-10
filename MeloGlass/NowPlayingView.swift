@@ -202,7 +202,7 @@ struct NowPlayingView: View {
                 Button {
                     if let track = p.current { p.toggleFavorite(track) }
                 } label: {
-                    Image(systemName: p.current.map { p.isFavorite($0) } == true ? "heart.fill" : "heart")
+                    Image(systemName: p.current.map { p.isFavorite($0) } == true ? "star.fill" : "star")
                         .font(.title2)
                         .foregroundStyle(p.current.map { p.isFavorite($0) } == true ? Color.cyan : Color.white.opacity(0.9))
                 }

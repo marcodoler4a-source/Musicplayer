@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showLibrarySearch = false
     @State private var musicInfoTarget: Track?
     @State private var tagEditTarget: Track?
+    @State private var swipeOptionsTarget: Track?
     @State private var tab = 0
     @State private var librarySection = "Songs"
     @State private var selectMode = false
@@ -104,7 +105,7 @@ struct ContentView: View {
 
                 favorites
                     .tag(1)
-                    .tabItem { Label("Favorites", systemImage: "heart.fill") }
+                    .tabItem { Label("Favorites", systemImage: "star.fill") }
 
                 recent
                     .tag(2)
@@ -140,6 +141,32 @@ struct ContentView: View {
             Text(p.sleepMinutes > 0 ? "Currently set to \(p.sleepMinutes) minutes" : "Choose when playback should stop")
         }
         .sheet(isPresented: $showQueue) { MusixQueueSheet().environmentObject(p) }
+        .confirmationDialog("Song Options", isPresented: Binding(
+            get: { swipeOptionsTarget != nil },
+            set: { if !$0 { swipeOptionsTarget = nil } }
+        ), titleVisibility: .visible) {
+            if let song = swipeOptionsTarget {
+                Button("Search Music Info Online", systemImage: "magnifyingglass.circle") {
+                    musicInfoTarget = song; showSearch = true; swipeOptionsTarget = nil
+                }
+                Button("Edit Audio Tags", systemImage: "pencil") {
+                    tagEditTarget = song; swipeOptionsTarget = nil
+                }
+                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                    p.enqueue(song, next: true); swipeOptionsTarget = nil
+                }
+                Button("Add to Queue", systemImage: "text.badge.plus") {
+                    p.enqueue(song, next: false); swipeOptionsTarget = nil
+                }
+                Button(p.isFavorite(song) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(song) ? "star.slash" : "star") {
+                    p.toggleFavorite(song); swipeOptionsTarget = nil
+                }
+                Button("Remove from Library", role: .destructive) {
+                    p.remove(song); swipeOptionsTarget = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { swipeOptionsTarget = nil }
+        }
         .sheet(item: $tagEditTarget) { song in
             EditAudioTagView(track: song).environmentObject(p)
         }
@@ -582,7 +609,7 @@ struct ContentView: View {
                         VStack(spacing: 16) {
                             let favs = sortedTracks.filter { p.isFavorite($0) }
                             if favs.isEmpty {
-                                empty("heart", "No favorites yet", "Tap the heart beside a song to add it here.")
+                                empty("star", "No favorites yet", "Tap the star beside a song to add it here.")
                             } else {
                                 LazyVStack(spacing: compactRows ? 5 : 10) {
                                     ForEach(favs) { track in trackRow(track, queue: favs) }
@@ -726,39 +753,50 @@ struct ContentView: View {
         }
     }
 
+    private func jumpToAlphabetLetter(_ letter: String, proxy: ScrollViewProxy) {
+        guard let track = firstTrack(for: letter) else { return }
+        currentScrollLetter = letter
+        // No animated scrolling while dragging: keep the index under the finger.
+        proxy.scrollTo(track.id, anchor: .top)
+        showAlphabetIndex = true
+    }
+
     private func alphabetIndex(proxy: ScrollViewProxy) -> some View {
-        VStack(spacing: 0) {
-            ForEach(libraryAlphabet, id: \.self) { letter in
+        let letters = libraryAlphabet
+        let rowHeight: CGFloat = 20
+        return VStack(spacing: 0) {
+            ForEach(letters, id: \.self) { letter in
                 Button {
-                    if let track = firstTrack(for: letter) {
-                        withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(track.id, anchor: .top) }
-                    }
-                    showAlphabetIndex = true
-                    alphabetHideWorkItem?.cancel()
-                    let work = DispatchWorkItem { showAlphabetIndex = false }
-                    alphabetHideWorkItem = work
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.15, execute: work)
+                    jumpToAlphabetLetter(letter, proxy: proxy)
                 } label: {
                     Text(letter)
                         .font(.system(size: letter == currentScrollLetter ? 13 : 11,
                                       weight: letter == currentScrollLetter ? .black : .bold,
                                       design: .rounded))
                         .foregroundStyle(letter == currentScrollLetter ? Color.white : accent)
-                        .frame(width: 26, height: 17)
+                        .frame(width: 30, height: rowHeight)
                         .background {
-                            if letter == currentScrollLetter {
-                                Capsule().fill(accent)
-                            }
+                            if letter == currentScrollLetter { Capsule().fill(accent) }
                         }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .foregroundStyle(accent)
         .padding(.vertical, 5)
         .background(.ultraThinMaterial, in: Capsule())
         .shadow(radius: 4)
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                .onChanged { value in
+                    guard !letters.isEmpty else { return }
+                    let index = min(max(Int((value.location.y - 5) / rowHeight), 0), letters.count - 1)
+                    let letter = letters[index]
+                    if currentScrollLetter != letter { jumpToAlphabetLetter(letter, proxy: proxy) }
+                }
+        )
+        .accessibilityLabel("Alphabetical fast scroll")
     }
 
     private func trackGridCard(_ t: Track, queue: [Track]) -> some View {
@@ -800,7 +838,7 @@ struct ContentView: View {
             if !selectMode {
             HStack {
                 Button { p.toggleFavorite(t) } label: {
-                    Image(systemName: p.isFavorite(t) ? "heart.fill" : "heart")
+                    Image(systemName: p.isFavorite(t) ? "star.fill" : "star")
                         .foregroundStyle(p.isFavorite(t) ? accent : .secondary)
                 }
                 Spacer()
@@ -819,7 +857,7 @@ struct ContentView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
         .contextMenu {
             Button { p.toggleFavorite(t) } label: {
-                Label(p.isFavorite(t) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(t) ? "heart.slash" : "heart")
+                Label(p.isFavorite(t) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(t) ? "star.slash" : "star")
             }
             Button { musicInfoTarget = t; showSearch = true } label: {
                 Label("Search Music Info", systemImage: "magnifyingglass")
@@ -878,7 +916,7 @@ struct ContentView: View {
             Button {
                 p.toggleFavorite(t)
             } label: {
-                Image(systemName: p.isFavorite(t) ? "heart.fill" : "heart")
+                Image(systemName: p.isFavorite(t) ? "star.fill" : "star")
                     .foregroundStyle(p.isFavorite(t) ? accent : .secondary)
                     .padding(8)
             }
@@ -894,11 +932,20 @@ struct ContentView: View {
         .padding(compactRows ? 6 : 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
         .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 28)
+                .onEnded { value in
+                    // Ignore vertical scrolling; only a deliberate left swipe opens options.
+                    if value.translation.width < -65 && abs(value.translation.width) > abs(value.translation.height) * 1.6 {
+                        swipeOptionsTarget = t
+                    }
+                }
+        )
         .contextMenu {
             Button {
                 p.toggleFavorite(t)
             } label: {
-                Label(p.isFavorite(t) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(t) ? "heart.slash" : "heart")
+                Label(p.isFavorite(t) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(t) ? "star.slash" : "star")
             }
             Button {
                 musicInfoTarget = t
@@ -950,7 +997,7 @@ struct LibraryMusicSearchView: View {
                         }
                     }
                     Toggle("Favorites", isOn: $favoritesOnly).labelsHidden()
-                    Image(systemName: "heart.fill").foregroundStyle(.secondary)
+                    Image(systemName: "star.fill").foregroundStyle(.secondary)
                 }.padding(.horizontal)
                     List(results) { track in
                 Button {
@@ -1565,7 +1612,7 @@ private struct LibraryStableOptionsMenu: View {
                 Button {
                     libraryFilter = "Favorites"
                 } label: {
-                    Label("Favorites", systemImage: libraryFilter == "Favorites" ? "checkmark" : "heart")
+                    Label("Favorites", systemImage: libraryFilter == "Favorites" ? "checkmark" : "star")
                 }
             }
             Button(gridMode ? "List" : "Grid", systemImage: gridMode ? "list.bullet" : "square.grid.2x2") {
