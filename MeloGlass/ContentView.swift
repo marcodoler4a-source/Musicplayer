@@ -524,42 +524,17 @@ struct ContentView: View {
                     .padding(12)
                     .background(.ultraThinMaterial, in: Circle())
             }
-            Button { showLibraryActions = true } label: {
-                Image(systemName: "ellipsis")
-                    .font(.title3)
-                    .frame(width: 44, height: 44)
-                    .background(Color(white: 0.16), in: Circle())
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Library options")
-            .confirmationDialog("Library Options", isPresented: $showLibraryActions, titleVisibility: .visible) {
-                Button(selectMode ? "Done Selecting" : "Select") {
-                    selectMode.toggle()
-                    if !selectMode { selectedIDs.removeAll() }
-                }
-                Button("Search Music Files") { showLibrarySearch = true }
-                Button("Sort") { showLibrarySortActions = true }
-                Button("Filter") { showLibraryFilterActions = true }
-                Button(gridMode ? "List" : "Grid") { gridMode.toggle() }
-                Button("Sleep Timer") { showSleepTimer = true }
-                Button("Up Next Queue") { showQueue = true }
-                Button("Settings") { tab = 4 }
-                Button("Cancel", role: .cancel) { }
-            }
-            .confirmationDialog("Sort Library", isPresented: $showLibrarySortActions, titleVisibility: .visible) {
-                ForEach(LibrarySort.allCases) { option in
-                    Button(option.rawValue == librarySort ? "✓ " + option.rawValue : option.rawValue) {
-                        librarySort = option.rawValue
-                    }
-                }
-                Button("Cancel", role: .cancel) { }
-            }
-            .confirmationDialog("Filter Library", isPresented: $showLibraryFilterActions, titleVisibility: .visible) {
-                Button(libraryFilter == "All" ? "✓ All songs" : "All songs") { libraryFilter = "All" }
-                Button(libraryFilter == "Favorites" ? "✓ Favorites" : "Favorites") { libraryFilter = "Favorites" }
-                Button("Cancel", role: .cancel) { }
-            }
+            LibraryStableOptionsMenu(
+                selectMode: $selectMode,
+                selectedIDs: $selectedIDs,
+                gridMode: $gridMode,
+                librarySort: $librarySort,
+                libraryFilter: $libraryFilter,
+                tab: $tab,
+                showLibrarySearch: $showLibrarySearch,
+                showSleepTimer: $showSleepTimer,
+                showQueue: $showQueue
+            )
         }
         .padding(.horizontal)
     }
@@ -669,19 +644,12 @@ struct ContentView: View {
                         .foregroundStyle(p.isFavorite(t) ? accent : .secondary)
                 }
                 Spacer()
-                Menu {
-                    Button { musicInfoTarget = t; showSearch = true } label: {
-                        Label("Search Music Info", systemImage: "magnifyingglass")
-                    }
-                    Button { p.enqueue(t, next: true) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
-                    Button { p.enqueue(t, next: false) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
-                    Button(role: .destructive) { p.remove(t) } label: {
-                        Label("Remove from Library", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(.secondary)
-                }
+                MusixStableSongOptionsMenu(
+                    onSearch: { musicInfoTarget = t; showSearch = true },
+                    onPlayNext: { p.enqueue(t, next: true) },
+                    onAddToQueue: { p.enqueue(t, next: false) },
+                    onRemove: { p.remove(t) }
+                )
             }
             .padding(.horizontal, 2)
             }
@@ -751,23 +719,12 @@ struct ContentView: View {
                     .padding(8)
             }
 
-            Menu {
-                Button {
-                    musicInfoTarget = t
-                    showSearch = true
-                } label: {
-                    Label("Search Music Info Online", systemImage: "magnifyingglass.circle")
-                }
-                Button { p.enqueue(t, next: true) } label: { Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") }
-                Button { p.enqueue(t, next: false) } label: { Label("Add to Queue", systemImage: "text.badge.plus") }
-                Button(role: .destructive) {
-                    p.remove(t)
-                } label: {
-                    Label("Remove from Library", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis").padding(8)
-            }
+            MusixStableSongOptionsMenu(
+                onSearch: { musicInfoTarget = t; showSearch = true },
+                onPlayNext: { p.enqueue(t, next: true) },
+                onAddToQueue: { p.enqueue(t, next: false) },
+                onRemove: { p.remove(t) }
+            )
         }
         .padding(compactRows ? 6 : 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
@@ -1185,5 +1142,104 @@ struct MusixAlbumCollectionView: View {
         if covers.hasCover(for: album) {
             Button(role: .destructive) { covers.remove(artist: album) } label: { Label("Reset Album Image", systemImage: "arrow.counterclockwise") }
         }
+    }
+}
+
+
+// A separate menu view deliberately does not observe PlayerModel. Playback progress
+// publishes frequently, but must not rebuild an open UIKit-backed SwiftUI Menu.
+private struct LibraryStableOptionsMenu: View {
+    @Binding var selectMode: Bool
+    @Binding var selectedIDs: Set<UUID>
+    @Binding var gridMode: Bool
+    @Binding var librarySort: String
+    @Binding var libraryFilter: String
+    @Binding var tab: Int
+    @Binding var showLibrarySearch: Bool
+    @Binding var showSleepTimer: Bool
+    @Binding var showQueue: Bool
+
+    var body: some View {
+        Menu {
+            Button(selectMode ? "Done Selecting" : "Select", systemImage: "checkmark.circle") {
+                selectMode.toggle()
+                if !selectMode { selectedIDs.removeAll() }
+            }
+            Button("Search Music Files", systemImage: "magnifyingglass") { showLibrarySearch = true }
+            Menu("Sort", systemImage: "arrow.up.arrow.down") {
+                ForEach(LibrarySort.allCases) { option in
+                    Button {
+                        librarySort = option.rawValue
+                    } label: {
+                        if librarySort == option.rawValue {
+                            Label(option.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(option.rawValue)
+                        }
+                    }
+                }
+            }
+            Menu("Filter", systemImage: "line.3.horizontal.decrease") {
+                Button {
+                    libraryFilter = "All"
+                } label: {
+                    Label("All songs", systemImage: libraryFilter == "All" ? "checkmark" : "music.note")
+                }
+                Button {
+                    libraryFilter = "Favorites"
+                } label: {
+                    Label("Favorites", systemImage: libraryFilter == "Favorites" ? "checkmark" : "heart")
+                }
+            }
+            Button(gridMode ? "List" : "Grid", systemImage: gridMode ? "list.bullet" : "square.grid.2x2") {
+                gridMode.toggle()
+            }
+            Divider()
+            Button("Sleep Timer", systemImage: "moon") { showSleepTimer = true }
+            Button("Up Next Queue", systemImage: "text.line.first.and.arrowtriangle.forward") { showQueue = true }
+            Button("Settings", systemImage: "gearshape") { tab = 4 }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.title3)
+                .padding(12)
+                .background(.ultraThinMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("Library options")
+    }
+}
+
+
+// Keep the native song options menu separate from the playback-observing library.
+// In particular, progress changes must not mutate the menu's label or contents.
+private struct MusixStableSongOptionsMenu: View {
+    let onSearch: () -> Void
+    let onPlayNext: () -> Void
+    let onAddToQueue: () -> Void
+    let onRemove: () -> Void
+
+    var body: some View {
+        Menu {
+            Button(action: onSearch) {
+                Label("Search Music Info Online", systemImage: "magnifyingglass.circle")
+            }
+            Button(action: onPlayNext) {
+                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+            }
+            Button(action: onAddToQueue) {
+                Label("Add to Queue", systemImage: "text.badge.plus")
+            }
+            Button(role: .destructive, action: onRemove) {
+                Label("Remove from Library", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .foregroundStyle(.secondary)
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .transaction { $0.animation = nil }
+        .accessibilityLabel("Song options")
     }
 }

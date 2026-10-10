@@ -96,6 +96,12 @@ import ImageIO
     }
     @Published private(set) var recoverableSongID: UUID?
     private var lastRecoverySaveSecond = -1
+    func persistSessionForBackground() {
+        saveRecoveryPoint()
+        UserDefaults.standard.set(shuffle, forKey: "musixShuffle")
+        UserDefaults.standard.set(repeatMode.rawValue, forKey: "musixRepeatMode")
+        UserDefaults.standard.set(Double(speed), forKey: "musixPlaybackSpeed")
+    }
     private func saveRecoveryPoint() {
         guard let current else { return }
         UserDefaults.standard.set(current.id.uuidString, forKey: "musixRecoverySong")
@@ -137,6 +143,10 @@ import ImageIO
         configureRemote()
         observeAudioInterruptions()
         applyEQPreset(eqPreset)
+        shuffle = UserDefaults.standard.bool(forKey: "musixShuffle")
+        if let savedMode = RepeatMode(rawValue: UserDefaults.standard.string(forKey: "musixRepeatMode") ?? "") { repeatMode = savedMode }
+        let savedSpeed = UserDefaults.standard.double(forKey: "musixPlaybackSpeed")
+        if savedSpeed > 0 { speed = Float(savedSpeed); timePitch.rate = speed }
         loadLibrary()
         loadExtras()
         if let raw = UserDefaults.standard.string(forKey: "musixRecoverySong") { recoverableSongID = UUID(uuidString: raw) }
@@ -856,6 +866,20 @@ import CryptoKit
         try JSONEncoder().encode(saved).write(to: folder.appendingPathComponent("MusixLibrary.json"), options: .atomic)
         let snapshot = BackupExtras(playlists: playlists, counts: playCounts, queuedIDs: extraQueue)
         try JSONEncoder().encode(snapshot).write(to: folder.appendingPathComponent("MusixExtras.json"), options: .atomic)
+        // Include personalized artwork and app preferences in portable backups.
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        for name in ["ArtistCovers", "AlbumCovers"] {
+            let source = support.appendingPathComponent(name, isDirectory: true)
+            if fm.fileExists(atPath: source.path) {
+                try fm.copyItem(at: source, to: folder.appendingPathComponent(name, isDirectory: true))
+            }
+        }
+        let settings = UserDefaults.standard.dictionaryRepresentation().filter { key, value in
+            (key.hasPrefix("musix") || key == "eqPreset" || key.hasPrefix("eqBand")) &&
+            PropertyListSerialization.propertyList(value, isValidFor: .binary)
+        }
+        try PropertyListSerialization.data(fromPropertyList: settings, format: .binary, options: 0)
+            .write(to: folder.appendingPathComponent("MusixSettings.plist"), options: .atomic)
         _ = library; _ = extras
         return folder
     }
@@ -879,6 +903,33 @@ import CryptoKit
         try JSONEncoder().encode(saved).write(to: libraryFileURL, options: .atomic)
         let extrasURL = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("MusixExtras.json")
         try JSONEncoder().encode(extras).write(to: extrasURL, options: .atomic)
+        // Backwards compatible: older backups may not contain these folders or settings.
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        for name in ["ArtistCovers", "AlbumCovers"] {
+            let source = folder.appendingPathComponent(name, isDirectory: true)
+            guard fm.fileExists(atPath: source.path) else { continue }
+            let destination = support.appendingPathComponent(name, isDirectory: true)
+            try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+            for file in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) {
+                let target = destination.appendingPathComponent(file.lastPathComponent)
+                if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+                try fm.copyItem(at: file, to: target)
+            }
+        }
+        let settingsURL = folder.appendingPathComponent("MusixSettings.plist")
+        if let data = try? Data(contentsOf: settingsURL),
+           let settings = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            for (key, value) in settings { UserDefaults.standard.set(value, forKey: key) }
+            batterySaver = UserDefaults.standard.bool(forKey: "musixBatterySaver")
+            lowMemoryMode = UserDefaults.standard.bool(forKey: "musixLowMemoryMode")
+            miniPlayerExpanded = UserDefaults.standard.bool(forKey: "musixExpandedMini")
+            crossfadeSeconds = UserDefaults.standard.double(forKey: "musixCrossfadeSeconds")
+            shuffle = UserDefaults.standard.bool(forKey: "musixShuffle")
+            if let mode = RepeatMode(rawValue: UserDefaults.standard.string(forKey: "musixRepeatMode") ?? "") { repeatMode = mode }
+            let restoredSpeed = UserDefaults.standard.double(forKey: "musixPlaybackSpeed")
+            if restoredSpeed > 0 { setRate(Float(restoredSpeed)) }
+            applyEQPreset(UserDefaults.standard.string(forKey: "eqPreset") ?? "Off")
+        }
         loadLibrary()
         playlists = extras.playlists
         playCounts = extras.counts

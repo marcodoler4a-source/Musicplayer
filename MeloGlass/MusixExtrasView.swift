@@ -79,7 +79,7 @@ struct MusixExtrasView: View {
                                 do { try p.restoreLibraryBackup(); message = "Library restored successfully." }
                                 catch { message = error.localizedDescription }
                             }
-                            Text("To restore, place the complete MusixBackup folder in Files > On My iPhone > Musix first. Restoring does not delete other files.").font(.caption).foregroundStyle(.secondary)
+                            Text("IMPORTANT: Copy the entire MusixBackup folder to iCloud Drive, a computer, or external storage BEFORE deleting Musix. Deleting the app also deletes backups kept inside its On My iPhone folder. Backups now include custom artist/album covers and Musix settings. To restore, copy the folder back to On My iPhone > Musix first.").font(.caption).foregroundStyle(.secondary)
                         }
                         Section("Duplicate Song Finder") {
                             Button("Scan for identical audio files") { duplicates = p.duplicateGroups() }
