@@ -319,10 +319,18 @@ struct ContentView: View {
                     )
                     .onPreferenceChange(MusixVisibleLettersKey.self) { positions in
                         guard librarySection == "Songs", !gridMode, !positions.isEmpty else { return }
-                        let ordered = positions.values.sorted { abs($0.0 - 12) < abs($1.0 - 12) }
-                        if let visible = ordered.first {
-                            let letter = visible.1
-                            currentScrollLetter = letter.range(of: "^[A-Z]$", options: .regularExpression) != nil ? letter : "#"
+                        var nearestLetter: String? = nil
+                        var nearestDistance: CGFloat = .greatestFiniteMagnitude
+                        for position in positions.values {
+                            let distance: CGFloat = abs(position.0 - CGFloat(12))
+                            if distance < nearestDistance {
+                                nearestDistance = distance
+                                nearestLetter = position.1
+                            }
+                        }
+                        if let letter = nearestLetter {
+                            let isLetter = letter.count == 1 && letter.first.map { $0 >= "A" && $0 <= "Z" } == true
+                            currentScrollLetter = isLetter ? letter : "#"
                         }
                     }
                     .onPreferenceChange(LibraryScrollOffsetKey.self) { offset in
