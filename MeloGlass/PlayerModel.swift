@@ -23,6 +23,25 @@ import ImageIO
     @Published var userError: String?
     @Published var playlists: [MusixPlaylist] = []
     @Published var playCounts: [UUID: Int] = [:]
+    // Calendar-based play events; older lifetime counts remain intact.
+    struct ReplayEvent: Codable { let songID: UUID; let date: Date }
+    @Published private(set) var replayEvents: [ReplayEvent] = {
+        guard let data = UserDefaults.standard.data(forKey: "musixReplayEvents") else { return [] }
+        return (try? JSONDecoder().decode([ReplayEvent].self, from: data)) ?? []
+    }()
+    func replayCount(for id: UUID, month: Int?, year: Int?) -> Int {
+        replayEvents.filter { event in
+            guard event.songID == id else { return false }
+            let components = Calendar.current.dateComponents([.year, .month], from: event.date)
+            return (year == nil || components.year == year) && (month == nil || components.month == month)
+        }.count
+    }
+    private func recordReplay(_ track: Track) {
+        replayEvents.append(ReplayEvent(songID: track.id, date: Date()))
+        if replayEvents.count > 20000 { replayEvents.removeFirst(replayEvents.count - 20000) }
+        if let data = try? JSONEncoder().encode(replayEvents) { UserDefaults.standard.set(data, forKey: "musixReplayEvents") }
+    }
+
     // V99 preferences and smart collections are stored without changing audio files.
     @Published var animatedArtwork = UserDefaults.standard.object(forKey: "musixAnimatedArtwork") as? Bool ?? true
     @Published var volumeNormalization = UserDefaults.standard.bool(forKey: "musixVolumeNormalization")
@@ -659,6 +678,7 @@ import ImageIO
         saveRecoveryPoint()
         recordHistory(t)
         playCounts[t.id, default: 0] += 1
+        recordReplay(t)
         saveExtras()
         do {
             // AVAudioFile exposes a decoded processing format for compressed files.
@@ -944,7 +964,7 @@ import ImageIO
             transitionNode.scheduleFile(file, at: nil)
         }
         guard transitionFile != nil else { return }
-        if !transitionStarted && remaining <= (fade > 0 ? fade : 0.20) {
+        if !transitionStarted && remaining <= (fade > 0 ? fade : 0.08) {
             transitionStarted = true
             transitionStart = Date()
             transitionStartFrame = 0
@@ -987,6 +1007,7 @@ import ImageIO
         saveRecoveryPoint()
         recordHistory(next)
         playCounts[next.id, default: 0] += 1
+        recordReplay(next)
         saveExtras()
         audioFile = file
         duration = Double(file.length) / file.processingFormat.sampleRate

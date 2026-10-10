@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 import PhotosUI
+import ImageIO
 
 struct ContentView: View {
     @EnvironmentObject var p: PlayerModel
@@ -243,21 +244,84 @@ struct ContentView: View {
         .ignoresSafeArea()
     }
 
+    // V125: Compact, scrollable collection navigation. Retains the existing
+    // section names and state so all Library actions continue to work.
+    private var libraryNavigation: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                libraryNavButton("Songs", symbol: "music.note.list")
+                libraryNavButton("Artists", symbol: "person.2.fill")
+                libraryNavButton("Albums", symbol: "square.stack.fill")
+                libraryNavButton("History", symbol: "clock.arrow.circlepath")
+                libraryNavButton("Genres", symbol: "square.grid.2x2.fill")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 3)
+        }
+        .accessibilityLabel("Library collections")
+    }
+
+    private func libraryNavButton(_ name: String, symbol: String) -> some View {
+        let selected = librarySection == name
+        return Button {
+            withAnimation(.easeInOut(duration: 0.18)) { librarySection = name }
+            revealedSwipeSongID = nil
+        } label: {
+            Label(name, systemImage: symbol)
+                .font(.subheadline.weight(selected ? .bold : .medium))
+                .foregroundStyle(selected ? Color.white : Color.white.opacity(0.75))
+                .padding(.horizontal, 15)
+                .padding(.vertical, 11)
+                .background {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .fill(selected ? accent.opacity(0.78) : Color.white.opacity(0.075))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .strokeBorder(Color.white.opacity(selected ? 0.23 : 0.08), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var librarySummary: some View {
+        let artistCount = Set(p.tracks.map { $0.artist.lowercased() }).count
+        let albumCount = Set(p.tracks.map { "\($0.artist.lowercased())|\($0.album.lowercased())" }).count
+        return HStack(spacing: 0) {
+            libraryMetric("\(p.tracks.count)", "Songs", "music.note")
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 32)
+            libraryMetric("\(artistCount)", "Artists", "person.2")
+            Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 32)
+            libraryMetric("\(albumCount)", "Albums", "square.stack")
+        }
+        .padding(.vertical, 16)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(LinearGradient(colors: [accent.opacity(0.22), Color.white.opacity(0.045)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func libraryMetric(_ value: String, _ caption: String, _ symbol: String) -> some View {
+        VStack(spacing: 5) {
+            Text(value).font(.title3.weight(.bold)).monospacedDigit().foregroundStyle(.white)
+            Label(caption, systemImage: symbol).font(.caption2.weight(.medium)).foregroundStyle(.white.opacity(0.68))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private var library: some View {
         NavigationStack {
             ZStack {
                 background
                 VStack(spacing: 12) {
                     header("Library", subtitle: "Your music, beautifully local.")
-                    Picker("Library View", selection: $librarySection) {
-                        Text("Songs").tag("Songs")
-                        Text("Artists").tag("Artists")
-                        Text("Albums").tag("Albums")
-                        Text("History").tag("History")
-                        Text("Genres").tag("Genres")
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
+                    libraryNavigation
 
                     if selectMode {
                         HStack(spacing: 12) {
@@ -303,20 +367,29 @@ struct ContentView: View {
                                             value: geo.frame(in: .named("libraryScroll")).minY)
                         }
                         .frame(height: 0)
+                        if librarySection == "Songs" && showOverview && !p.tracks.isEmpty {
+                            librarySummary
+                        }
                         if librarySection == "Songs" && showContinue && !p.historyTracks.isEmpty {
                             VStack(alignment: .leading, spacing: 9) {
                                 HStack {
-                                    Label("Continue Listening", systemImage: "play.circle.fill").font(.headline)
+                                    Label("Continue Listening", systemImage: "play.circle.fill")
+                                        .font(.headline.weight(.bold))
                                     Spacer()
                                     Button("Hide") { showContinue = false }.font(.caption)
                                 }
                                 ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 10) {
+                                    HStack(spacing: 13) {
                                         ForEach(continueListeningTracks) { song in
                                             Button { p.play(song); showPlayer = true } label: {
                                                 VStack(alignment: .leading, spacing: 5) {
-                                                    Artwork(data: song.artworkData).frame(width: 94, height: 94)
-                                                    Text(song.title).font(.caption).lineLimit(1).frame(width: 94, alignment: .leading)
+                                                    Artwork(data: song.artworkData)
+                                                        .frame(width: 112, height: 112)
+                                                        .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                                    Text(song.title).font(.caption.weight(.semibold))
+                                                        .lineLimit(1).frame(width: 112, alignment: .leading)
+                                                    Text(song.artist).font(.caption2).foregroundStyle(.secondary)
+                                                        .lineLimit(1).frame(width: 112, alignment: .leading)
                                                 }
                                             }.buttonStyle(.plain)
                                         }
@@ -326,12 +399,16 @@ struct ContentView: View {
                         }
                         if librarySection == "Songs" && showOverview {
                             HStack {
-                                Label("\(p.tracks.count) songs", systemImage: "music.note")
+                                Label("YOUR COLLECTION", systemImage: "square.grid.2x2.fill")
+                                    .font(.caption.weight(.bold)).tracking(1.1)
+                                    .foregroundStyle(.white.opacity(0.7))
                                 Spacer()
-                                Button("Storage & Cleanup") { showStorageOverview = true }.font(.caption)
-                            }.font(.subheadline).padding(12)
-                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                             .padding(.horizontal)
+                                Button { showStorageOverview = true } label: {
+                                    Label("Manage", systemImage: "externaldrive")
+                                        .font(.caption.weight(.semibold))
+                                }
+                            }
+                            .padding(.horizontal, 18)
                         }
                         if p.tracks.isEmpty {
                             empty(
@@ -1023,17 +1100,27 @@ struct LibraryMusicSearchView: View {
     @State private var query = ""
     @State private var genreFilter = "All Genres"
     @State private var favoritesOnly = false
-
+    @State private var searchScope = "All"
+    @State private var yearFilter = "All Years"
+    @AppStorage("musixRecentSearches") private var recentSearchesData = "[]"
+    private var recentSearches: [String] { (try? JSONDecoder().decode([String].self, from: Data(recentSearchesData.utf8))) ?? [] }
+    private func rememberSearch() {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        let updated = [value] + Array(recentSearches.filter { $0.caseInsensitiveCompare(value) != .orderedSame }.prefix(9))
+        if let data = try? JSONEncoder().encode(updated), let text = String(data: data, encoding: .utf8) { recentSearchesData = text }
+    }
     private var results: [Track] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return p.tracks.filter { track in
-            (q.isEmpty || track.title.localizedCaseInsensitiveContains(q) ||
-             track.artist.localizedCaseInsensitiveContains(q) ||
-             track.album.localizedCaseInsensitiveContains(q) ||
-             track.genre.localizedCaseInsensitiveContains(q) ||
-             track.releaseDate.localizedCaseInsensitiveContains(q) ||
-             track.url.lastPathComponent.localizedCaseInsensitiveContains(q)) &&
+            (q.isEmpty || (searchScope == "All" && [track.title, track.artist, track.album, track.genre, track.releaseDate, track.url.lastPathComponent].contains { $0.localizedCaseInsensitiveContains(q) }) ||
+             (searchScope == "Songs" && track.title.localizedCaseInsensitiveContains(q)) ||
+             (searchScope == "Artists" && track.artist.localizedCaseInsensitiveContains(q)) ||
+             (searchScope == "Albums" && track.album.localizedCaseInsensitiveContains(q)) ||
+             (searchScope == "Genres" && track.genre.localizedCaseInsensitiveContains(q)) ||
+             (searchScope == "Years" && track.releaseDate.localizedCaseInsensitiveContains(q))) &&
             (genreFilter == "All Genres" || track.genre == genreFilter) &&
+            (yearFilter == "All Years" || track.releaseDate.contains(yearFilter)) &&
             (!favoritesOnly || p.isFavorite(track))
         }
     }
@@ -1041,7 +1128,24 @@ struct LibraryMusicSearchView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                Picker("Search in", selection: $searchScope) {
+                    ForEach(["All", "Songs", "Artists", "Albums", "Genres", "Years"], id: \.self) { Text($0).tag($0) }
+                }.pickerStyle(.menu).padding(.horizontal)
+                if query.isEmpty && !recentSearches.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack { ForEach(recentSearches, id: \.self) { term in
+                            Button(term) { query = term }.buttonStyle(.bordered)
+                        } }.padding(.horizontal)
+                    }
+                }
                 HStack {
+                    Picker("Year", selection: $yearFilter) {
+                        Text("All Years").tag("All Years")
+                        ForEach(Array(Set(p.tracks.compactMap { track -> String? in
+                            let year = String(track.releaseDate.prefix(4))
+                            return year.count == 4 && Int(year) != nil ? year : nil
+                        })).sorted(by: >), id: \.self) { Text($0).tag($0) }
+                    }
                     Picker("Genre", selection: $genreFilter) {
                         Text("All Genres").tag("All Genres")
                         ForEach(Array(Set(p.tracks.map(\.genre).filter { !$0.isEmpty })).sorted(), id: \.self) { genre in
@@ -1053,6 +1157,7 @@ struct LibraryMusicSearchView: View {
                 }.padding(.horizontal)
                     List(results) { track in
                 Button {
+                    rememberSearch()
                     p.play(track, queue: results)
                     dismiss()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { showPlayer = true }
@@ -1070,6 +1175,7 @@ struct LibraryMusicSearchView: View {
             }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your songs")
+            .onSubmit(of: .search) { rememberSearch() }
             .navigationTitle("Search Music")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
@@ -1081,23 +1187,42 @@ struct LibraryMusicSearchView: View {
 
 struct Artwork: View {
     let data: Data?
-
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 48 * 1024 * 1024
+        cache.countLimit = 350
+        return cache
+    }()
+    private func thumbnail(_ data: Data, size: CGFloat) -> UIImage? {
+        let dimension = max(100, min(1000, Int(size * UIScreen.main.scale)))
+        let key = "\(data.count)-\(data.hashValue)-\(dimension)" as NSString
+        if let cached = Self.cache.object(forKey: key) { return cached }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: dimension,
+                kCGImageSourceCreateThumbnailWithTransform: true
+              ] as CFDictionary) else { return UIImage(data: data) }
+        let result = UIImage(cgImage: image)
+        Self.cache.setObject(result, forKey: key, cost: image.bytesPerRow * image.height)
+        return result
+    }
     var body: some View {
-        Group {
-            if let data, let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                ZStack {
-                    LinearGradient(
-                        colors: [.blue.opacity(0.8), .indigo],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    Image(systemName: "music.note").font(.largeTitle)
+        GeometryReader { geometry in
+            Group {
+                if let data, let image = thumbnail(data, size: max(geometry.size.width, geometry.size.height)) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        LinearGradient(colors: [.blue.opacity(0.8), .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: "music.note").font(.largeTitle)
+                    }
                 }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 

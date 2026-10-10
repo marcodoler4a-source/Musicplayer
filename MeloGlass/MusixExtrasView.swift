@@ -25,22 +25,38 @@ struct MusixExtrasView: View {
     }
 
     @State private var selectedPlaylist: UUID?
-    @AppStorage("musixMoreSection") private var section = 5
+    @State private var section = -1
     @State private var message = ""
     @State private var duplicates: [[Track]] = []
     @State private var showKaraoke = false
     @State private var showVisualizer = false
+    @State private var replayYear = Calendar.current.component(.year, from: Date())
+    @State private var replayMonth = 0
+    private var replayTracks: [(track: Track, plays: Int)] {
+        p.tracks.map { (track: $0, plays: p.replayCount(for: $0.id, month: replayMonth == 0 ? nil : replayMonth, year: replayYear)) }
+            .filter { $0.plays > 0 }.sorted { $0.plays > $1.plays }
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("View", selection: $section) {
-                    Text("Settings").tag(5)
-                    Text("Playlists").tag(0)
-                    Text("Up Next").tag(1)
-                    Text("Statistics").tag(2)
-                    Text("Tools").tag(3)
-                    Text("Home").tag(4)
-                }.pickerStyle(.segmented).padding()
+                if section == -1 {
+                    moreDashboard
+                } else {
+                    HStack(spacing: 12) {
+                        Button { withAnimation(.easeInOut(duration: 0.2)) { section = -1 } } label: {
+                            Label("More", systemImage: "chevron.left")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                        Text(sectionTitle).font(.headline)
+                        Spacer()
+                        Color.clear.frame(width: 50, height: 1)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                }
                 if section == 5 {
                     AppearanceSettingsView()
                 } else {
@@ -132,6 +148,30 @@ struct MusixExtrasView: View {
                             .onMove { p.moveQueued(from: $0, to: $1) }
                         }
                     } else if section == 2 {
+                        Section("Musix Replay · Calendar") {
+                            Picker("Year", selection: $replayYear) {
+                                ForEach(Array(Set(p.replayEvents.map { Calendar.current.component(.year, from: $0.date) } + [Calendar.current.component(.year, from: Date())])).sorted(by: >), id: \.self) { year in Text(String(year)).tag(year) }
+                            }
+                            Picker("Period", selection: $replayMonth) {
+                                Text("Full Year").tag(0)
+                                ForEach(1...12, id: \.self) { month in Text(Calendar.current.monthSymbols[month - 1]).tag(month) }
+                            }
+                            Text("Recorded plays: \(replayTracks.reduce(0) { $0 + $1.plays })")
+                            Text("Top songs").font(.headline)
+                            ForEach(Array(replayTracks.prefix(10).enumerated()), id: \.offset) { item in
+                                let entry = item.element
+                                HStack { Text(entry.track.title).lineLimit(1); Spacer(); Text("\(entry.plays) plays").foregroundStyle(.secondary) }
+                            }
+                            Text("Top artists").font(.headline)
+                            ForEach(Array(Dictionary(grouping: replayTracks, by: { $0.track.artist }).map { (name: $0.key, plays: $0.value.reduce(0) { $0 + $1.plays }) }.sorted { $0.plays > $1.plays }.prefix(5)), id: \.name) { entry in
+                                HStack { Text(entry.name); Spacer(); Text("\(entry.plays) plays").foregroundStyle(.secondary) }
+                            }
+                            Text("Top albums").font(.headline)
+                            ForEach(Array(Dictionary(grouping: replayTracks, by: { $0.track.album }).map { (name: $0.key, plays: $0.value.reduce(0) { $0 + $1.plays }) }.sorted { $0.plays > $1.plays }.prefix(5)), id: \.name) { entry in
+                                HStack { Text(entry.name); Spacer(); Text("\(entry.plays) plays").foregroundStyle(.secondary) }
+                            }
+                            Text("Calendar Replay starts tracking with V123. Lifetime statistics below include earlier plays.").font(.caption).foregroundStyle(.secondary)
+                        }
                         Section("Listening") {
                             Text("Listening time: \(Int(p.listeningSeconds / 3600))h \(Int(p.listeningSeconds / 60) % 60)m")
                             Text("Total plays: \(p.playCounts.values.reduce(0, +))")
@@ -194,6 +234,121 @@ struct MusixExtrasView: View {
             .fullScreenCover(isPresented: $showKaraoke) { MusixKaraokeView() }
             .sheet(isPresented: $showVisualizer) { MusixAudioVisualizer() }
         }
+    }
+
+    private var sectionTitle: String {
+        switch section {
+        case 0: return "Playlists"
+        case 1: return "Up Next"
+        case 2: return "Musix Replay"
+        case 3: return "Tools & Storage"
+        case 4: return "Music Overview"
+        default: return "Settings"
+        }
+    }
+
+    private var moreDashboard: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("YOUR MUSIC, YOUR WAY")
+                        .font(.caption2.weight(.bold)).tracking(2)
+                        .foregroundStyle(.cyan)
+                    Text("Music Hub")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                    Text("Everything beyond your Library, in one place.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    HStack(spacing: 0) {
+                        hubStat("\(p.tracks.count)", label: "Songs")
+                        Spacer()
+                        hubStat("\(Set(p.tracks.map(\.artist)).count)", label: "Artists")
+                        Spacer()
+                        hubStat("\(p.playlists.count)", label: "Playlists")
+                    }
+                    .padding(.top, 13)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+                .background(
+                    LinearGradient(colors: [Color.blue.opacity(0.23), Color.cyan.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    in: RoundedRectangle(cornerRadius: 24)
+                )
+
+                VStack(alignment: .leading, spacing: 12) {
+                    hubHeading("QUICK ACCESS")
+                    HStack(spacing: 12) {
+                        hubTile("Playlists", subtitle: "Your collections", icon: "music.note.list", color: .blue, target: 0)
+                        hubTile("Up Next", subtitle: "Playback queue", icon: "text.line.first.and.arrowtriangle.forward", color: .purple, target: 1)
+                    }
+                    HStack(spacing: 12) {
+                        hubTile("Musix Replay", subtitle: "Listening insights", icon: "chart.bar.fill", color: .cyan, target: 2)
+                        hubTile("Music Overview", subtitle: "Your collection", icon: "square.grid.2x2.fill", color: .indigo, target: 4)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    hubHeading("PERSONALIZE & MANAGE")
+                    VStack(spacing: 0) {
+                        hubRow("Settings", subtitle: "Appearance, playback and accessibility", icon: "gearshape.fill", target: 5)
+                        Divider().padding(.leading, 52)
+                        hubRow("Tools & Storage", subtitle: "Backup, duplicates and audio tools", icon: "externaldrive.fill", target: 3)
+                    }
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 12)
+            .padding(.bottom, 30)
+        }
+    }
+
+    private func hubStat(_ value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value).font(.title3.weight(.bold)).monospacedDigit()
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func hubHeading(_ title: String) -> some View {
+        Text(title).font(.caption.weight(.bold)).tracking(1.4).foregroundStyle(.secondary)
+            .padding(.leading, 3)
+    }
+
+    private func hubTile(_ title: String, subtitle: String, icon: String, color: Color, target: Int) -> some View {
+        Button { withAnimation(.easeInOut(duration: 0.2)) { section = target } } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: icon)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(color)
+                    .frame(width: 42, height: 42)
+                    .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 12))
+                Spacer(minLength: 4)
+                Text(title).font(.subheadline.weight(.bold)).foregroundStyle(.primary)
+                Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 122, alignment: .leading)
+            .padding(15)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 19))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func hubRow(_ title: String, subtitle: String, icon: String, target: Int) -> some View {
+        Button { withAnimation(.easeInOut(duration: 0.2)) { section = target } } label: {
+            HStack(spacing: 13) {
+                Image(systemName: icon)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.cyan)
+                    .frame(width: 34, height: 38)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 2)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 
     private func quickFeature(_ title: String, icon: String, section target: Int) -> some View {

@@ -179,6 +179,11 @@ struct AppearanceSettingsView: View {
     @AppStorage("musixArtworkTransitions") private var artworkTransitions = true
     @AppStorage("musixResumeOnLaunch") private var resumeOnLaunch = false
     @AppStorage("musixSwipeLeftPrevious") private var swipeLeftPrevious = true
+    @State private var settingsQuery = ""
+    private func visible(_ section: String) -> Bool {
+        settingsQuery.isEmpty || section.localizedCaseInsensitiveContains(settingsQuery) ||
+        ["playback", "audio", "appearance", "lyrics", "library", "storage", "accessibility", "performance"].contains(where: { $0.localizedCaseInsensitiveContains(settingsQuery) && section.localizedCaseInsensitiveContains($0) })
+    }
     @State private var cacheStatus = ""
     @State private var cacheBytes: Int64 = 0
     @State private var libraryBytes: Int64 = 0
@@ -223,7 +228,14 @@ struct AppearanceSettingsView: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 6)
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Find a settings section", text: $settingsQuery)
+                    .textInputAutocapitalization(.never)
+                if !settingsQuery.isEmpty { Button { settingsQuery = "" } label: { Image(systemName: "xmark.circle.fill") } }
+            }.padding(12).background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 16)
             Form {
+                if visible("Appearance") {
                 Section("Now Playing") {
                     Toggle("Smooth artwork transitions", isOn: $artworkTransitions)
                     Text("Fade between album covers when changing songs.")
@@ -240,7 +252,9 @@ struct AppearanceSettingsView: View {
                     Toggle("Compact library rows",isOn:$compactRows)
                     HStack { Text("Glass intensity"); Slider(value:$glassIntensity,in:0.2...1) }
                 }
-                Section("Equalizer") {
+                }
+                if visible("Audio") {
+                Section("Audio · Equalizer") {
                     Picker("Sound preset", selection: Binding(
                         get: { p.eqPreset },
                         set: { p.setEQPreset($0) }
@@ -267,7 +281,9 @@ struct AppearanceSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                Section("Player") {
+                }
+                if visible("Playback") {
+                Section("Playback · Player") {
                     Toggle("Progress bar lighting animation", isOn: $progressLightingEnabled)
                     Toggle("Large playback buttons",isOn:$largePlayerButtons)
                     Toggle("Show mini player",isOn:$showMiniPlayer)
@@ -275,6 +291,8 @@ struct AppearanceSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                }
+                if visible("Performance") {
                 Section("Performance") {
                     Toggle("Battery Saver", isOn: Binding(get: { p.batterySaver }, set: { p.setBatterySaver($0) }))
                     Toggle("Low Memory Mode", isOn: Binding(get: { p.lowMemoryMode }, set: { p.setLowMemoryMode($0) }))
@@ -293,6 +311,8 @@ struct AppearanceSettingsView: View {
                         }.navigationTitle("Diagnostics")
                     }
                 }
+                }
+                if visible("Playback") {
                 Section("Playback Preferences") {
                     Toggle("Resume previous session on launch", isOn: $resumeOnLaunch)
                     Text("When enabled, Musix restores the last song and position without starting playback automatically.")
@@ -308,6 +328,8 @@ struct AppearanceSettingsView: View {
                     Slider(value: Binding(get: { p.crossfadeSeconds }, set: { p.setCrossfade($0) }), in: 0...12, step: 1)
                     Toggle("Normalize volume", isOn: Binding(get: { p.volumeNormalization }, set: { p.setVolumeNormalization($0) }))
                 }
+                }
+                if visible("Storage") {
                 Section("Storage Management") {
                     LabeledContent("Imported music & library files", value: formatted(libraryBytes))
                     LabeledContent("Temporary cache", value: formatted(cacheBytes))
@@ -317,20 +339,27 @@ struct AppearanceSettingsView: View {
                     Text("Only temporary files are cleared. Your imported music, playlists and saved artwork remain untouched.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                }
+                if visible("Accessibility") {
                 Section("Accessibility & Motion") {
                     Toggle("Reduce Motion", isOn: $reduceMotion)
                     Toggle("Increase Contrast", isOn: $highContrast)
                     Text("Reduce Motion disables the Now Playing artwork pulse and artwork transition. Increased contrast strengthens the artwork border.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                }
+                if visible("Library") {
                 Section("Library") {
                     Picker("Sort music",selection:$librarySort){ ForEach(LibrarySort.allCases){ Text($0.rawValue).tag($0.rawValue) } }
                 }
+                }
+                if visible("Lyrics") {
                 Section("Lyrics") {
                     Toggle("Show lyrics on album artwork", isOn: $showLyricsOverlay)
                     Text("Turn this off to hide the lyrics overlay from the Now Playing album artwork. You can still add or search lyrics by pressing and holding the album cover.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
                 }
             }.navigationTitle("Settings")
             .onAppear { cacheBytes = sizeOfFiles(in: FileManager.default.temporaryDirectory); libraryBytes = sizeOfFiles(in: documentsURL) }
