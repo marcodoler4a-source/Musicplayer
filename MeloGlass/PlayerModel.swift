@@ -232,6 +232,7 @@ import ImageIO
         loadLibrary()
         loadExtras()
         if let raw = UserDefaults.standard.string(forKey: "musixRecoverySong") { recoverableSongID = UUID(uuidString: raw) }
+        if UserDefaults.standard.bool(forKey: "musixResumeOnLaunch") { restorePreviousSession() }
         Task { await recoverStoredAudioFiles() }
     }
 
@@ -355,6 +356,23 @@ import ImageIO
                         self.diagnosticsMessage = "Audio interruption ended"
                     }
                     self.resumeAfterInterruption = false
+                }
+            }
+        })
+        audioObservers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: AVAudioSession.sharedInstance(), queue: .main) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+                let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
+                if reason == .oldDeviceUnavailable {
+                    // Respect unplugged headphones and disconnected Bluetooth devices.
+                    self.playerNode.pause()
+                    self.transitionNode.pause()
+                    self.isPlaying = false
+                    self.diagnosticsMessage = "Audio output disconnected — paused for safety"
+                    self.publish()
+                } else {
+                    self.diagnosticsMessage = "Audio output changed"
                 }
             }
         })

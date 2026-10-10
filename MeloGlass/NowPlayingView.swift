@@ -17,7 +17,13 @@ struct NowPlayingView: View {
     @State private var showTagEditor = false
     @State private var showSleepTimer = false
     @State private var showQueue = false
+    @AppStorage("musixReduceMotion") private var reduceMotion = false
+    @AppStorage("musixArtworkTransitions") private var artworkTransitions = true
+    @AppStorage("musixSwipeLeftPrevious") private var swipeLeftPrevious = true
+    @AppStorage("musixHighContrast") private var highContrast = false
     @State private var artworkPulse = false
+    @State private var artworkSwipeOffset: CGFloat = 0
+    @State private var artworkSwipeInProgress = false
     @AppStorage("musixAppearanceTheme") private var appearanceTheme = "Dynamic Artwork"
     @AppStorage("musixArtworkCorners") private var artworkCorners = 14.0
     @AppStorage("musixArtworkGlow") private var artworkGlow = true
@@ -131,18 +137,55 @@ struct NowPlayingView: View {
     }
 
     private func artwork(maxWidth: CGFloat) -> some View {
-        Artwork(data: p.current?.artworkData)
-            .scaleEffect((p.animatedArtwork && !p.batterySaver && artworkPulse) ? 1.012 : 1.0)
-            .animation((p.animatedArtwork && !p.batterySaver) ? .easeInOut(duration: 3.8).repeatForever(autoreverses: true) : .none, value: artworkPulse)
+        ZStack {
+            Artwork(data: p.current?.artworkData)
+                .id(p.current?.id)
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        }
+            .animation((artworkTransitions && !reduceMotion) ? .easeInOut(duration: 0.28) : .none, value: p.current?.id)
+            .offset(x: artworkSwipeOffset)
+            .scaleEffect((p.animatedArtwork && !p.batterySaver && !reduceMotion && artworkPulse) ? 1.012 : 1.0)
+            .animation((p.animatedArtwork && !p.batterySaver && !reduceMotion) ? .easeInOut(duration: 3.8).repeatForever(autoreverses: true) : .none, value: artworkPulse)
             .onAppear { artworkPulse = true }
             .frame(width: max(180, maxWidth), height: max(180, maxWidth))
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: artworkCorners, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: artworkCorners, style: .continuous).stroke(.white.opacity(0.14), lineWidth: 0.8))
+            .overlay(RoundedRectangle(cornerRadius: artworkCorners, style: .continuous).stroke(.white.opacity(highContrast ? 0.55 : 0.14), lineWidth: highContrast ? 1.5 : 0.8))
             .shadow(color: artworkGlow ? Color.cyan.opacity(0.24) : .clear, radius: 32, y: 12)
             .shadow(color: .black.opacity(0.5), radius: 28, y: 16)
             .contentShape(Rectangle())
             .onLongPressGesture { if p.current != nil { showArtworkMenu = true } }
+            // Swipe directions are intentionally user-defined:
+            // left = previous track, right = next track.
+            // Attach only to artwork so scrubbing and lyrics retain their gestures.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 22)
+                    .onChanged { value in
+                        guard !artworkSwipeInProgress else { return }
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        guard abs(dx) > abs(dy) * 1.2 else { return }
+                        artworkSwipeOffset = max(-95, min(95, dx * 0.35))
+                    }
+                    .onEnded { value in
+                        guard !artworkSwipeInProgress else { return }
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        guard abs(dx) >= 65, abs(dx) > abs(dy) * 1.2 else {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                artworkSwipeOffset = 0
+                            }
+                            return
+                        }
+                        artworkSwipeInProgress = true
+                        // Existing PlayerModel methods retain shuffle, queue and repeat behavior.
+                        if (dx < 0) == swipeLeftPrevious { p.previous() } else { p.next() }
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                            artworkSwipeOffset = 0
+                        }
+                        artworkSwipeInProgress = false
+                    }
+            )
             .padding(.top, 6)
             .padding(.bottom, 10)
     }

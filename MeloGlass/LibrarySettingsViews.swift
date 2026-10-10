@@ -174,8 +174,55 @@ struct AppearanceSettingsView: View {
     @AppStorage("librarySort") private var librarySort = LibrarySort.title.rawValue
     @AppStorage("showLyricsOverlay") private var showLyricsOverlay = true
     @AppStorage("progressLightingEnabled") private var progressLightingEnabled = true
+    @AppStorage("musixReduceMotion") private var reduceMotion = false
+    @AppStorage("musixHighContrast") private var highContrast = false
+    @AppStorage("musixArtworkTransitions") private var artworkTransitions = true
+    @AppStorage("musixResumeOnLaunch") private var resumeOnLaunch = false
+    @AppStorage("musixSwipeLeftPrevious") private var swipeLeftPrevious = true
+    @State private var cacheStatus = ""
+    @State private var cacheBytes: Int64 = 0
+    @State private var libraryBytes: Int64 = 0
+    private var documentsURL: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
+    private func sizeOfFiles(in folder: URL) -> Int64 {
+        guard let iterator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { return 0 }
+        var result: Int64 = 0
+        for case let url as URL in iterator {
+            if let properties = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), properties.isRegularFile == true {
+                result += Int64(properties.fileSize ?? 0)
+            }
+        }
+        return result
+    }
+    private func formatted(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
+    private func clearTemporaryCache() {
+        let folder = FileManager.default.temporaryDirectory
+        let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        var failed = 0
+        for item in items { do { try FileManager.default.removeItem(at: item) } catch { failed += 1 } }
+        cacheBytes = sizeOfFiles(in: folder)
+        cacheStatus = failed == 0 ? "Temporary cache cleared. Imported music was not touched." : "Some temporary files are in use and could not be cleared."
+    }
     var body: some View {
         Form {
+                Section {
+                    HStack(spacing: 14) {
+                        Image(systemName: "music.note.house.fill")
+                            .font(.system(size: 29))
+                            .foregroundStyle(.cyan)
+                            .frame(width: 54, height: 54)
+                            .background(.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Personalize Musix").font(.headline)
+                            Text("Appearance, playback, storage and accessibility")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.padding(.vertical, 6)
+                }
+                Section("Now Playing") {
+                    Toggle("Smooth artwork transitions", isOn: $artworkTransitions)
+                    Text("Fade between album covers when changing songs.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("Appearance") {
                     Picker("Now Playing theme", selection: $appearanceTheme) {
                         ForEach(["Dynamic Artwork", "Midnight Blue", "Deep Purple", "Pure OLED Black"], id: \.self) { theme in Text(theme).tag(theme) }
@@ -240,6 +287,36 @@ struct AppearanceSettingsView: View {
                         }.navigationTitle("Diagnostics")
                     }
                 }
+                Section("Playback Preferences") {
+                    Toggle("Resume previous session on launch", isOn: $resumeOnLaunch)
+                    Text("When enabled, Musix restores the last song and position without starting playback automatically.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Toggle("Swipe left for previous song", isOn: $swipeLeftPrevious)
+                    Text("Turn off to reverse the Now Playing artwork swipe directions.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    HStack {
+                        Text("Crossfade")
+                        Spacer()
+                        Text(String(format: "%.0f s", p.crossfadeSeconds)).foregroundStyle(.secondary)
+                    }
+                    Slider(value: Binding(get: { p.crossfadeSeconds }, set: { p.setCrossfade($0) }), in: 0...12, step: 1)
+                    Toggle("Normalize volume", isOn: Binding(get: { p.volumeNormalization }, set: { p.setVolumeNormalization($0) }))
+                }
+                Section("Storage Management") {
+                    LabeledContent("Imported music & library files", value: formatted(libraryBytes))
+                    LabeledContent("Temporary cache", value: formatted(cacheBytes))
+                    Button("Refresh Storage Sizes") { cacheBytes = sizeOfFiles(in: FileManager.default.temporaryDirectory); libraryBytes = sizeOfFiles(in: documentsURL) }
+                    Button("Clear Temporary Cache", role: .destructive) { clearTemporaryCache() }
+                    if !cacheStatus.isEmpty { Text(cacheStatus).font(.footnote).foregroundStyle(.secondary) }
+                    Text("Only temporary files are cleared. Your imported music, playlists and saved artwork remain untouched.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Accessibility & Motion") {
+                    Toggle("Reduce Motion", isOn: $reduceMotion)
+                    Toggle("Increase Contrast", isOn: $highContrast)
+                    Text("Reduce Motion disables the Now Playing artwork pulse and artwork transition. Increased contrast strengthens the artwork border.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("Library") {
                     Picker("Sort music",selection:$librarySort){ ForEach(LibrarySort.allCases){ Text($0.rawValue).tag($0.rawValue) } }
                 }
@@ -250,5 +327,6 @@ struct AppearanceSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }.navigationTitle("Settings")
+            .onAppear { cacheBytes = sizeOfFiles(in: FileManager.default.temporaryDirectory); libraryBytes = sizeOfFiles(in: documentsURL) }
     }
 }
