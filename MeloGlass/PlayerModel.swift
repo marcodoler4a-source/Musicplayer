@@ -23,7 +23,79 @@ import ImageIO
     @Published var userError: String?
     @Published var playlists: [MusixPlaylist] = []
     @Published var playCounts: [UUID: Int] = [:]
-    // Ordered playback events, newest first. Repeated plays remain visible.
+    // V99 preferences and smart collections are stored without changing audio files.
+    @Published var animatedArtwork = UserDefaults.standard.object(forKey: "musixAnimatedArtwork") as? Bool ?? true
+    @Published var volumeNormalization = UserDefaults.standard.bool(forKey: "musixVolumeNormalization")
+    @Published private(set) var listeningSeconds: Double = UserDefaults.standard.double(forKey: "musixListeningSeconds")
+    @Published private(set) var skippedIDs: [UUID] = UserDefaults.standard.stringArray(forKey: "musixSkippedIDs")?.compactMap(UUID.init(uuidString:)) ?? []
+    func setAnimatedArtwork(_ value: Bool) { animatedArtwork = value; UserDefaults.standard.set(value, forKey: "musixAnimatedArtwork") }
+    func setVolumeNormalization(_ value: Bool) { volumeNormalization = value; UserDefaults.standard.set(value, forKey: "musixVolumeNormalization"); applyNormalizedVolume() }
+    enum SmartCollection: String, CaseIterable, Identifiable {
+        case favorites = "Favorites", mostPlayed = "Most Played", recentlyAdded = "Recently Added", neverPlayed = "Never Played", recentlySkipped = "Recently Skipped"
+        var id: String { rawValue }
+    }
+    func smartTracks(_ collection: SmartCollection) -> [Track] {
+        switch collection {
+        case .favorites: return tracks.filter { favoriteIDs.contains($0.id) }
+        case .mostPlayed: return tracks.filter { playCounts[$0.id, default: 0] > 0 }.sorted { playCounts[$0.id, default: 0] > playCounts[$1.id, default: 0] }
+        case .recentlyAdded: return tracks.reversed()
+        case .neverPlayed: return tracks.filter { playCounts[$0.id, default: 0] == 0 }
+        case .recentlySkipped: return skippedIDs.compactMap { id in tracks.first { $0.id == id } }
+        }
+    }
+    private func recordSkip() {
+        guard let song = current, isPlaying, duration > 0, time < duration - 5 else { return }
+        skippedIDs.removeAll { $0 == song.id }
+        skippedIDs.insert(song.id, at: 0)
+        if skippedIDs.count > 100 { skippedIDs = Array(skippedIDs.prefix(100)) }
+        UserDefaults.standard.set(skippedIDs.map(\.uuidString), forKey: "musixSkippedIDs")
+    }
+    // Analyze a short PCM sample off the main thread and attenuate louder tracks.
+    // The analysis never boosts quiet recordings, reducing clipping risk.
+    private var normalizedGain: Float = 1
+    private func applyNormalizedVolume() {
+        engine.mainMixerNode.outputVolume = volumeNormalization ? normalizedGain : 1
+    }
+    private func analyzeLoudness(for track: Track) {
+        normalizedGain = 1
+        applyNormalizedVolume()
+        guard volumeNormalization else { return }
+        let id = track.id
+        let url = track.url
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let file = try? AVAudioFile(forReading: url) else { return }
+            let format = file.processingFormat
+            guard format.commonFormat == .pcmFormatFloat32,
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else { return }
+            let channels = Int(format.channelCount)
+            let maxFrames = Int(min(file.length, AVAudioFramePosition(format.sampleRate * 12)))
+            var frames = 0
+            var sum = 0.0
+            var samples = 0
+            while frames < maxFrames {
+                do { try file.read(into: buffer, frameCount: AVAudioFrameCount(min(8192, maxFrames - frames))) }
+                catch { break }
+                let count = Int(buffer.frameLength)
+                guard count > 0, let data = buffer.floatChannelData else { break }
+                for channel in 0..<channels {
+                    for i in 0..<count {
+                        let value = Double(data[channel][i])
+                        sum += value * value
+                    }
+                }
+                samples += count * channels
+                frames += count
+            }
+            guard samples > 0 else { return }
+            let rms = sqrt(sum / Double(samples))
+            let gain = Float(min(1, max(0.35, 0.15 / max(rms, 0.0001))))
+            Task { @MainActor [weak self] in
+                guard let self, self.current?.id == id, self.volumeNormalization else { return }
+                self.normalizedGain = gain
+                self.applyNormalizedVolume()
+            }
+        }
+    }
     @Published private(set) var playbackHistory: [UUID] = UserDefaults.standard.stringArray(forKey: "musixPlaybackHistory")?.compactMap(UUID.init(uuidString:)) ?? []
     var historyTracks: [Track] { playbackHistory.compactMap { id in tracks.first { $0.id == id } } }
     private func recordHistory(_ track: Track) {
@@ -140,6 +212,7 @@ import ImageIO
         super.init()
         configureAudio()
         configureEngine()
+        applyNormalizedVolume()
         configureRemote()
         observeAudioInterruptions()
         applyEQPreset(eqPreset)
@@ -513,6 +586,7 @@ import ImageIO
         if let queue { queueIDs = queue.map(\.id) }
         if queueIDs.isEmpty { queueIDs = tracks.map(\.id) }
         current = t
+        analyzeLoudness(for: t)
         time = 0
         saveRecoveryPoint()
         recordHistory(t)
@@ -585,6 +659,7 @@ import ImageIO
     }
 
     func next() {
+        recordSkip()
         cancelTransition()
         if !extraQueue.isEmpty {
             let id = extraQueue.removeFirst(); queueRevision += 1; saveExtras()
@@ -718,6 +793,12 @@ import ImageIO
             Task { @MainActor in
                 guard let self, let render = self.playerNode.lastRenderTime, let nodeTime = self.playerNode.playerTime(forNodeTime: render), let file = self.audioFile else { return }
                 self.time = min(self.duration, Double(self.startFrame + AVAudioFramePosition(nodeTime.sampleTime)) / file.processingFormat.sampleRate)
+                if self.isPlaying {
+                    self.listeningSeconds += self.batterySaver ? 1.5 : 1.0
+                    if Int(self.listeningSeconds) % 15 <= 1 {
+                        UserDefaults.standard.set(self.listeningSeconds, forKey: "musixListeningSeconds")
+                    }
+                }
                 let second = Int(self.time)
                 if second % 5 == 0 && second != self.lastRecoverySaveSecond {
                     self.lastRecoverySaveSecond = second
@@ -807,6 +888,7 @@ import ImageIO
         transitionStart = nil
         if extraQueue.first == next.id { extraQueue.removeFirst(); queueRevision += 1; saveExtras() }
         current = next
+        analyzeLoudness(for: next)
         saveRecoveryPoint()
         recordHistory(next)
         playCounts[next.id, default: 0] += 1

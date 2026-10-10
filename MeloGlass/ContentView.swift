@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var showSearch = false
     @State private var showLibrarySearch = false
     @State private var musicInfoTarget: Track?
+    @State private var tagEditTarget: Track?
     @State private var tab = 0
     @State private var librarySection = "Songs"
     @State private var selectMode = false
@@ -117,6 +118,9 @@ struct ContentView: View {
             Text(p.sleepMinutes > 0 ? "Currently set to \(p.sleepMinutes) minutes" : "Choose when playback should stop")
         }
         .sheet(isPresented: $showQueue) { MusixQueueSheet().environmentObject(p) }
+        .sheet(item: $tagEditTarget) { song in
+            EditAudioTagView(track: song).environmentObject(p)
+        }
         .sheet(isPresented: $showSearch) {
             MusicInfoSearchView(target: musicInfoTarget).environmentObject(p)
         }
@@ -646,6 +650,7 @@ struct ContentView: View {
                 Spacer()
                 MusixStableSongOptionsMenu(
                     onSearch: { musicInfoTarget = t; showSearch = true },
+                onEdit: { tagEditTarget = t },
                     onPlayNext: { p.enqueue(t, next: true) },
                     onAddToQueue: { p.enqueue(t, next: false) },
                     onRemove: { p.remove(t) }
@@ -721,6 +726,7 @@ struct ContentView: View {
 
             MusixStableSongOptionsMenu(
                 onSearch: { musicInfoTarget = t; showSearch = true },
+                onEdit: { tagEditTarget = t },
                 onPlayNext: { p.enqueue(t, next: true) },
                 onAddToQueue: { p.enqueue(t, next: false) },
                 onRemove: { p.remove(t) }
@@ -1214,6 +1220,7 @@ private struct LibraryStableOptionsMenu: View {
 // In particular, progress changes must not mutate the menu's label or contents.
 private struct MusixStableSongOptionsMenu: View {
     let onSearch: () -> Void
+    let onEdit: () -> Void
     let onPlayNext: () -> Void
     let onAddToQueue: () -> Void
     let onRemove: () -> Void
@@ -1222,6 +1229,9 @@ private struct MusixStableSongOptionsMenu: View {
         Menu {
             Button(action: onSearch) {
                 Label("Search Music Info Online", systemImage: "magnifyingglass.circle")
+            }
+            Button(action: onEdit) {
+                Label("Edit Audio Tags", systemImage: "pencil")
             }
             Button(action: onPlayNext) {
                 Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")

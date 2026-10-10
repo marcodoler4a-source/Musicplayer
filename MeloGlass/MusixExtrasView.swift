@@ -41,6 +41,20 @@ struct MusixExtrasView: View {
                                 Button("Add") { p.createPlaylist(name); name = "" }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                             }
                         }
+                        Section("Smart Playlists · Auto-updating") {
+                            ForEach(PlayerModel.SmartCollection.allCases) { collection in
+                                NavigationLink {
+                                    MusixSmartPlaylistDetail(collection: collection)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "sparkles").foregroundStyle(.cyan)
+                                        Text(collection.rawValue)
+                                        Spacer()
+                                        Text("\(p.smartTracks(collection).count)").foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
                         ForEach(p.playlists) { playlist in
                             NavigationLink {
                                 MusixPlaylistDetail(playlistID: playlist.id)
@@ -63,7 +77,20 @@ struct MusixExtrasView: View {
                         }
                     } else if section == 2 {
                         Section("Listening") {
+                            Text("Listening time: \(Int(p.listeningSeconds / 3600))h \(Int(p.listeningSeconds / 60) % 60)m")
                             Text("Total plays: \(p.playCounts.values.reduce(0, +))")
+                            Text("Unique artists: \(Set(p.tracks.map(\.artist)).count)")
+                            Text("Albums: \(Set(p.tracks.map(\.album)).count)")
+                            Section("Top Artists") {
+                                ForEach(Array(Dictionary(grouping: p.tracks, by: \.artist).map { (name: $0.key, plays: $0.value.reduce(0) { $0 + p.playCounts[$1.id, default: 0] }) }.sorted { $0.plays > $1.plays }.prefix(10)), id: \.name) { item in
+                                    HStack { Text(item.name); Spacer(); Text("\(item.plays) plays").foregroundStyle(.secondary) }
+                                }
+                            }
+                            Section("Top Albums") {
+                                ForEach(Array(Dictionary(grouping: p.tracks, by: \.album).map { (name: $0.key, plays: $0.value.reduce(0) { $0 + p.playCounts[$1.id, default: 0] }) }.sorted { $0.plays > $1.plays }.prefix(10)), id: \.name) { item in
+                                    HStack { Text(item.name); Spacer(); Text("\(item.plays) plays").foregroundStyle(.secondary) }
+                                }
+                            }
                             Text("Songs played: \(p.playCounts.values.filter { $0 > 0 }.count)")
                             ForEach(p.tracks.sorted { p.playCounts[$0.id, default: 0] > p.playCounts[$1.id, default: 0] }.prefix(30)) { track in
                                 HStack { Text(track.title); Spacer(); Text("\(p.playCounts[track.id, default: 0]) plays").foregroundStyle(.secondary) }
@@ -91,6 +118,11 @@ struct MusixExtrasView: View {
                                 }
                             }
                             Text("Uses SHA-256 file comparison. Review duplicates before deleting songs in Library.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Section("V99 Playback Preferences") {
+                            Toggle("Animated Album Artwork", isOn: Binding(get: { p.animatedArtwork }, set: { p.setAnimatedArtwork($0) }))
+                            Toggle("Volume Leveling (conservative)", isOn: Binding(get: { p.volumeNormalization }, set: { p.setVolumeNormalization($0) }))
+                            Text("Volume leveling currently reduces output gain to prevent loud tracks from clipping. It does not yet measure per-song loudness.").font(.caption).foregroundStyle(.secondary)
                         }
                         Section("Now Playing Extras") {
                             Button("Open full-screen karaoke lyrics") { showKaraoke = true }
@@ -284,5 +316,36 @@ private struct MusixAudioVisualizer: View {
             .onDisappear { p.visualizerVisible = false }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
+    }
+}
+
+
+private struct MusixSmartPlaylistDetail: View {
+    @EnvironmentObject private var p: PlayerModel
+    let collection: PlayerModel.SmartCollection
+    var body: some View {
+        List {
+            let songs = p.smartTracks(collection)
+            if songs.isEmpty {
+                Text("No songs in this smart playlist yet.").foregroundStyle(.secondary)
+            } else {
+                Button("Play All") { if let first = songs.first { p.play(first, queue: songs) } }
+                ForEach(songs) { song in
+                    Button {
+                        p.play(song, queue: songs)
+                    } label: {
+                        VStack(alignment: .leading) {
+                            Text(song.title).foregroundStyle(.primary)
+                            Text(song.artist).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .contextMenu {
+                        Button("Play Next") { p.enqueue(song, next: true) }
+                        Button("Add to Queue") { p.enqueue(song, next: false) }
+                    }
+                }
+            }
+        }
+        .navigationTitle(collection.rawValue)
     }
 }

@@ -17,6 +17,7 @@ struct NowPlayingView: View {
     @State private var showTagEditor = false
     @State private var showSleepTimer = false
     @State private var showQueue = false
+    @State private var artworkPulse = false
     @AppStorage("showLyricsOverlay") private var showLyricsOverlay = true
 
     var body: some View {
@@ -128,6 +129,9 @@ struct NowPlayingView: View {
 
     private func artwork(maxWidth: CGFloat) -> some View {
         Artwork(data: p.current?.artworkData)
+            .scaleEffect((p.animatedArtwork && !p.batterySaver && artworkPulse) ? 1.012 : 1.0)
+            .animation((p.animatedArtwork && !p.batterySaver) ? .easeInOut(duration: 3.8).repeatForever(autoreverses: true) : .none, value: artworkPulse)
+            .onAppear { artworkPulse = true }
             .frame(width: max(180, maxWidth), height: max(180, maxWidth))
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
