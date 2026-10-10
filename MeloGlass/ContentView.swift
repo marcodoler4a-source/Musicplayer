@@ -1156,6 +1156,8 @@ struct MusixAlbumCollectionView: View {
 // A separate menu view deliberately does not observe PlayerModel. Playback progress
 // publishes frequently, but must not rebuild an open UIKit-backed SwiftUI Menu.
 private struct LibraryStableOptionsMenu: View {
+    @AppStorage("musixCollectionGrid") private var collectionGrid = true
+    @AppStorage("musixAlwaysShowAlphabet") private var alwaysShowAlphabet = true
     @Binding var selectMode: Bool
     @Binding var selectedIDs: Set<UUID>
     @Binding var gridMode: Bool
