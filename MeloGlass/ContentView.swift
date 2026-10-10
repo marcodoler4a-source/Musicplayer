@@ -292,7 +292,7 @@ struct ContentView: View {
                                         trackRow(track, queue: libraryVisibleTracks)
                                             .background(GeometryReader { rowGeo in
                                                 Color.clear.preference(key: MusixVisibleLettersKey.self,
-                                                    value: [track.id: (rowGeo.frame(in: .named("libraryScroll")).minY, String(track.title.prefix(1)).uppercased())])
+                                                    value: [track.id: MusixLetterPosition(y: rowGeo.frame(in: .named("libraryScroll")).minY, letter: String(track.title.prefix(1)).uppercased())])
                                             })
                                     }
                                 }
@@ -322,10 +322,10 @@ struct ContentView: View {
                         var nearestLetter: String? = nil
                         var nearestDistance: CGFloat = .greatestFiniteMagnitude
                         for position in positions.values {
-                            let distance: CGFloat = abs(position.0 - CGFloat(12))
+                            let distance: CGFloat = abs(position.y - CGFloat(12))
                             if distance < nearestDistance {
                                 nearestDistance = distance
-                                nearestLetter = position.1
+                                nearestLetter = position.letter
                             }
                         }
                         if let letter = nearestLetter {
@@ -1087,9 +1087,14 @@ private struct NativeDocumentImporter: UIViewControllerRepresentable {
     }
 }
 
+private struct MusixLetterPosition: Equatable {
+    let y: CGFloat
+    let letter: String
+}
+
 private struct MusixVisibleLettersKey: PreferenceKey {
-    static var defaultValue: [UUID: (CGFloat, String)] = [:]
-    static func reduce(value: inout [UUID: (CGFloat, String)], nextValue: () -> [UUID: (CGFloat, String)]) {
+    static var defaultValue: [UUID: MusixLetterPosition] = [:]
+    static func reduce(value: inout [UUID: MusixLetterPosition], nextValue: () -> [UUID: MusixLetterPosition]) {
         value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
 }
