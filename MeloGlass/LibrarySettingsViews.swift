@@ -163,6 +163,9 @@ struct MusicInfoResultCard: View {
 struct AppearanceSettingsView: View {
     @EnvironmentObject var p: PlayerModel
     @AppStorage("accentChoice") private var accentChoice = "Blue"
+    @AppStorage("musixAppearanceTheme") private var appearanceTheme = "Dynamic Artwork"
+    @AppStorage("musixArtworkCorners") private var artworkCorners = 14.0
+    @AppStorage("musixArtworkGlow") private var artworkGlow = true
     @AppStorage("compactRows") private var compactRows = false
     @AppStorage("showArtwork") private var showArtwork = true
     @AppStorage("showMiniPlayer") private var showMiniPlayer = true
@@ -174,6 +177,11 @@ struct AppearanceSettingsView: View {
     var body: some View {
         Form {
                 Section("Appearance") {
+                    Picker("Now Playing theme", selection: $appearanceTheme) {
+                        ForEach(["Dynamic Artwork", "Midnight Blue", "Deep Purple", "Pure OLED Black"], id: \.self) { theme in Text(theme).tag(theme) }
+                    }
+                    Toggle("Artwork glow", isOn: $artworkGlow)
+                    HStack { Text("Artwork corners"); Slider(value: $artworkCorners, in: 0...28, step: 2) }
                     Picker("Accent",selection:$accentChoice){ Text("Blue").tag("Blue"); Text("Purple").tag("Purple"); Text("Green").tag("Green"); Text("Pink").tag("Pink") }
                     Toggle("Show album artwork",isOn:$showArtwork)
                     Toggle("Compact library rows",isOn:$compactRows)

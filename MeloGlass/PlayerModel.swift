@@ -379,14 +379,18 @@ import ImageIO
         timePitch.rate = speed
         // Meter the final mix at ~10Hz instead of posting a main-actor task for
         // every audio render buffer. Never touch observable state on the render thread.
-        let mixer = engine.mainMixerNode
+        // Tap the processed player signal BEFORE the output mixer. The main mixer
+        // tap could remain silent on some routes, and hostTime is not guaranteed
+        // to advance in every render callback (notably on some iOS devices).
+        let meterNode = timePitch
         let meterLock = NSLock()
-        var lastMeterHostTime: UInt64 = 0
-        mixer.installTap(onBus: 0, bufferSize: 2048, format: mixer.outputFormat(forBus: 0)) { [weak self] buffer, when in
+        var meterFrames = 0
+        meterNode.installTap(onBus: 0, bufferSize: 2048, format: meterNode.outputFormat(forBus: 0)) { [weak self] buffer, _ in
             meterLock.lock()
-            let shouldPublish = when.hostTime > lastMeterHostTime &&
-                AVAudioTime.seconds(forHostTime: when.hostTime - lastMeterHostTime) >= 0.055
-            if shouldPublish { lastMeterHostTime = when.hostTime }
+            meterFrames += Int(buffer.frameLength)
+            let publishEvery = Int(max(8000, buffer.format.sampleRate) / 20.0)
+            let shouldPublish = meterFrames >= publishEvery
+            if shouldPublish { meterFrames = 0 }
             meterLock.unlock()
             guard shouldPublish, let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
             // Frequency-sensitive spectrum: 20 logarithmically spaced Goertzel
@@ -414,12 +418,12 @@ import ImageIO
                 // dB-domain mapping makes normal music levels visible; linear
                 // scaling previously pinned virtually every band to 0.025.
                 let db = 20.0 * log10(max(Double(magnitude), 1e-8))
-                let normalized = (db + 88.0) / 65.0
+                let normalized = (db + 76.0) / 57.0
                 levels[index] = CGFloat(min(1.0, max(0.025, normalized)))
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.visualizerVisible, !self.batterySaver else { return }
-                self.audioLevels = levels
+                self.audioLevels = self.isPlaying ? levels : Array(repeating: 0.025, count: 20)
             }
         }
         do { try engine.start() }

@@ -395,7 +395,7 @@ private struct MusixAudioVisualizer: View {
                             }
                             ForEach(0..<20, id: \.self) { index in
                                 Capsule().fill(spectrum)
-                                    .frame(width: 8, height: 14 + CGFloat(p.audioLevels.indices.contains(index) ? p.audioLevels[index] : 0) * side * 0.20)
+                                    .frame(width: 8, height: 8 + CGFloat(p.audioLevels.indices.contains(index) ? p.audioLevels[index] : 0) * side * 0.25)
                                     .offset(y: -side * 0.34)
                                     .rotationEffect(.degrees(Double(index) * 18))
                             }

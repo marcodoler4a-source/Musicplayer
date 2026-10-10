@@ -18,11 +18,14 @@ struct NowPlayingView: View {
     @State private var showSleepTimer = false
     @State private var showQueue = false
     @State private var artworkPulse = false
+    @AppStorage("musixAppearanceTheme") private var appearanceTheme = "Dynamic Artwork"
+    @AppStorage("musixArtworkCorners") private var artworkCorners = 14.0
+    @AppStorage("musixArtworkGlow") private var artworkGlow = true
     @AppStorage("showLyricsOverlay") private var showLyricsOverlay = true
 
     var body: some View {
         ZStack {
-            SpotifyInspiredBackground(data: p.current?.artworkData)
+            SpotifyInspiredBackground(data: p.current?.artworkData, theme: appearanceTheme)
 
             GeometryReader { geometry in
                 ScrollView(showsIndicators: false) {
@@ -134,7 +137,9 @@ struct NowPlayingView: View {
             .onAppear { artworkPulse = true }
             .frame(width: max(180, maxWidth), height: max(180, maxWidth))
             .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: artworkCorners, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: artworkCorners, style: .continuous).stroke(.white.opacity(0.14), lineWidth: 0.8))
+            .shadow(color: artworkGlow ? Color.cyan.opacity(0.24) : .clear, radius: 32, y: 12)
             .shadow(color: .black.opacity(0.5), radius: 28, y: 16)
             .contentShape(Rectangle())
             .onLongPressGesture { if p.current != nil { showArtworkMenu = true } }
@@ -473,10 +478,19 @@ struct EditAudioTagView: View {
 
 struct SpotifyInspiredBackground: View {
     let data: Data?
+    var theme: String = "Dynamic Artwork"
+    private var themeColor: Color {
+        switch theme {
+        case "Midnight Blue": return Color(red: 0.025, green: 0.075, blue: 0.19)
+        case "Deep Purple": return Color(red: 0.13, green: 0.045, blue: 0.23)
+        case "Pure OLED Black": return .black
+        default: return .black
+        }
+    }
     @State private var drifting = false
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            themeColor.ignoresSafeArea()
             GeometryReader { geometry in
                 Group {
                     if let data, let image = UIImage(data: data) {
@@ -495,11 +509,11 @@ struct SpotifyInspiredBackground: View {
                 .offset(x: drifting ? 20 : -20, y: drifting ? -16 : 16)
                 .animation(.easeInOut(duration: 12).repeatForever(autoreverses: true), value: drifting)
                 .onAppear { drifting = true }
-                .opacity(0.72)
+                .opacity(theme == "Dynamic Artwork" ? 0.72 : (theme == "Pure OLED Black" ? 0.0 : 0.22))
             }
             .ignoresSafeArea()
             LinearGradient(
-                colors: [.black.opacity(0.04), .black.opacity(0.38), .black.opacity(0.82)],
+                colors: [themeColor.opacity(0.04), themeColor.opacity(0.42), themeColor.opacity(0.94)],
                 startPoint: .top,
                 endPoint: .bottom
             )
