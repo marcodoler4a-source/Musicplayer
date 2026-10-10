@@ -642,8 +642,15 @@ import ImageIO
         saveLibrary()
     }
 
-    func play(_ t: Track, queue: [Track]? = nil) {
+    func play(_ t: Track, queue: [Track]? = nil, resetUpcoming: Bool = false) {
         cancelTransition()
+        // Starting an artist/album collection establishes a fresh listening context.
+        // Previously queued songs must not override the collection on Next.
+        if resetUpcoming && !extraQueue.isEmpty {
+            extraQueue.removeAll()
+            queueRevision += 1
+            saveExtras()
+        }
         if let queue { queueIDs = queue.map(\.id) }
         if queueIDs.isEmpty { queueIDs = tracks.map(\.id) }
         current = t

@@ -1313,7 +1313,7 @@ struct MusixArtistCollectionView: View {
     private func startPlaying(shuffled: Bool) {
         let selection = shuffled ? songs.shuffled() : songs
         guard let first = selection.first else { return }
-        p.play(first, queue: selection)
+        p.play(first, queue: selection, resetUpcoming: true)
         showPlayer = true
     }
 
@@ -1388,7 +1388,7 @@ struct MusixArtistCollectionView: View {
                             ForEach(songs) { track in
                                 HStack(spacing: 12) {
                                     Button {
-                                        p.play(track, queue: songs)
+                                        p.play(track, queue: songs, resetUpcoming: true)
                                         showPlayer = true
                                     } label: {
                                         HStack(spacing: 12) {
@@ -1474,7 +1474,7 @@ struct MusixAlbumCollectionView: View {
     private func startPlaying(shuffled: Bool) {
         let selection = shuffled ? songs.shuffled() : songs
         guard let first = selection.first else { return }
-        p.play(first, queue: selection)
+        p.play(first, queue: selection, resetUpcoming: true)
         showPlayer = true
     }
 
@@ -1553,7 +1553,7 @@ struct MusixAlbumCollectionView: View {
                             ForEach(songs) { track in
                                 HStack(spacing: 12) {
                                     Button {
-                                        p.play(track, queue: songs)
+                                        p.play(track, queue: songs, resetUpcoming: true)
                                         showPlayer = true
                                     } label: {
                                         HStack(spacing: 12) {
