@@ -97,7 +97,13 @@ import ImageIO
         }
     }
     @Published private(set) var playbackHistory: [UUID] = UserDefaults.standard.stringArray(forKey: "musixPlaybackHistory")?.compactMap(UUID.init(uuidString:)) ?? []
-    var historyTracks: [Track] { playbackHistory.compactMap { id in tracks.first { $0.id == id } } }
+    var historyTracks: [Track] {
+        var seen = Set<UUID>()
+        return playbackHistory.compactMap { id in
+            guard seen.insert(id).inserted else { return nil }
+            return tracks.first { $0.id == id }
+        }
+    }
     private func recordHistory(_ track: Track) {
         playbackHistory.insert(track.id, at: 0)
         if playbackHistory.count > 200 { playbackHistory = Array(playbackHistory.prefix(200)) }

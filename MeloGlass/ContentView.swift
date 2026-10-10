@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var musicInfoTarget: Track?
     @State private var tagEditTarget: Track?
     @State private var swipeOptionsTarget: Track?
+    @State private var revealedSwipeSongID: UUID?
     @State private var tab = 0
     @State private var librarySection = "Songs"
     @State private var selectMode = false
@@ -143,7 +144,7 @@ struct ContentView: View {
         .sheet(isPresented: $showQueue) { MusixQueueSheet().environmentObject(p) }
         .confirmationDialog("Song Options", isPresented: Binding(
             get: { swipeOptionsTarget != nil },
-            set: { if !$0 { swipeOptionsTarget = nil } }
+            set: { if !$0 { swipeOptionsTarget = nil; withAnimation(.easeOut(duration: 0.2)) { revealedSwipeSongID = nil } } }
         ), titleVisibility: .visible) {
             if let song = swipeOptionsTarget {
                 Button("Search Music Info Online", systemImage: "magnifyingglass.circle") {
@@ -158,14 +159,14 @@ struct ContentView: View {
                 Button("Add to Queue", systemImage: "text.badge.plus") {
                     p.enqueue(song, next: false); swipeOptionsTarget = nil
                 }
-                Button(p.isFavorite(song) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(song) ? "star.slash" : "star") {
-                    p.toggleFavorite(song); swipeOptionsTarget = nil
-                }
                 Button("Remove from Library", role: .destructive) {
                     p.remove(song); swipeOptionsTarget = nil
                 }
             }
             Button("Cancel", role: .cancel) { swipeOptionsTarget = nil }
+        }
+        .onChange(of: swipeOptionsTarget?.id) { _, newValue in
+            if newValue == nil { withAnimation(.easeOut(duration: 0.2)) { revealedSwipeSongID = nil } }
         }
         .sheet(item: $tagEditTarget) { song in
             EditAudioTagView(track: song).environmentObject(p)
@@ -470,7 +471,7 @@ struct ContentView: View {
             if p.historyTracks.isEmpty {
                 empty("clock.arrow.circlepath", "No listening history yet", "Songs you play will appear here, newest first.")
             } else {
-                ForEach(Array(p.historyTracks.enumerated()), id: \.offset) { _, track in
+                ForEach(p.historyTracks) { track in
                     trackRow(track, queue: p.historyTracks)
                 }
                 .padding(.horizontal)
@@ -932,12 +933,32 @@ struct ContentView: View {
         .padding(compactRows ? 6 : 10)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
         .contentShape(Rectangle())
+        .offset(x: revealedSwipeSongID == t.id ? -88 : 0)
+        .background(alignment: .trailing) {
+            Button {
+                swipeOptionsTarget = t
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "ellipsis.circle.fill").font(.title2)
+                    Text("Options").font(.caption2).fontWeight(.semibold)
+                }
+                .foregroundStyle(.white)
+                .frame(width: 82)
+                .frame(maxHeight: .infinity)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16))
+            }
+            .buttonStyle(.plain)
+            .opacity(revealedSwipeSongID == t.id ? 1 : 0)
+            .allowsHitTesting(revealedSwipeSongID == t.id)
+        }
         .simultaneousGesture(
             DragGesture(minimumDistance: 28)
                 .onEnded { value in
-                    // Ignore vertical scrolling; only a deliberate left swipe opens options.
-                    if value.translation.width < -65 && abs(value.translation.width) > abs(value.translation.height) * 1.6 {
-                        swipeOptionsTarget = t
+                    guard abs(value.translation.width) > abs(value.translation.height) * 1.6 else { return }
+                    if value.translation.width < -55 {
+                        withAnimation(.easeOut(duration: 0.22)) { revealedSwipeSongID = t.id }
+                    } else if value.translation.width > 55 && revealedSwipeSongID == t.id {
+                        withAnimation(.easeOut(duration: 0.22)) { revealedSwipeSongID = nil }
                     }
                 }
         )
