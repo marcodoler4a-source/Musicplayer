@@ -176,7 +176,7 @@ struct ContentView: View {
             ZStack {
                 background
                 VStack(spacing: 12) {
-                    header("Library", subtitle: "Your music, beautifully local.", count: p.tracks.count)
+                    header("Library", subtitle: "Your music, beautifully local.")
                     Picker("Library View", selection: $librarySection) {
                         Text("Songs").tag("Songs")
                         Text("Artists").tag("Artists")
@@ -350,17 +350,6 @@ struct ContentView: View {
                                 .transition(.opacity)
                                 .padding(.trailing, 7)
                                 .zIndex(100)
-                        }
-                    }
-                    .overlay(alignment: .center) {
-                        if showAlphabetIndex && librarySection == "Songs" && !gridMode {
-                            Text(currentScrollLetter)
-                                .font(.system(size: 48, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
-                                .frame(width: 92, height: 92)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
-                                .allowsHitTesting(false)
-                                .transition(.opacity)
                         }
                     }
                     .animation(.easeOut(duration: 0.18), value: showAlphabetIndex)
@@ -737,8 +726,16 @@ struct ContentView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.15, execute: work)
                 } label: {
                     Text(letter)
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .font(.system(size: letter == currentScrollLetter ? 13 : 11,
+                                      weight: letter == currentScrollLetter ? .black : .bold,
+                                      design: .rounded))
+                        .foregroundStyle(letter == currentScrollLetter ? Color.white : accent)
                         .frame(width: 26, height: 17)
+                        .background {
+                            if letter == currentScrollLetter {
+                                Capsule().fill(accent)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1377,7 +1374,6 @@ private struct LibraryStableOptionsMenu: View {
             Button(gridMode ? "List" : "Grid", systemImage: gridMode ? "list.bullet" : "square.grid.2x2") {
                 gridMode.toggle()
             }
-            Button(collectionGrid ? "Collection List" : "Collection Grid", systemImage: collectionGrid ? "list.bullet" : "square.grid.2x2") { collectionGrid.toggle() }
             Button(alwaysShowAlphabet ? "Hide A–Z Index" : "Always Show A–Z", systemImage: "textformat.abc") { alwaysShowAlphabet.toggle() }
             Divider()
             Button("Sleep Timer", systemImage: "moon") { showSleepTimer = true }
