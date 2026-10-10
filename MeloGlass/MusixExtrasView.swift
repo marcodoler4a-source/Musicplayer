@@ -33,23 +33,6 @@ struct MusixExtrasView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // V78: Surface the restored features without hiding them in Tools.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
-                        quickFeature("Settings", icon: "gearshape.fill", section: 5)
-                        quickFeature("Backup & Restore", icon: "externaldrive", section: 3)
-                        quickFeature("Duplicate Finder", icon: "doc.on.doc", section: 3)
-                        quickFeature("Statistics", icon: "chart.bar", section: 2)
-                        quickFeature("Dashboard", icon: "square.grid.2x2.fill", section: 4)
-                        Button { showKaraoke = true } label: {
-                            Label("Karaoke Lyrics", systemImage: "text.quote")
-                        }.buttonStyle(.bordered)
-                        quickFeature("Mini Player", icon: "rectangle.bottomthird.inset.filled", section: 3)
-                        Button { showVisualizer = true } label: {
-                            Label("Visualizer", systemImage: "waveform")
-                        }.buttonStyle(.bordered)
-                    }.padding(.horizontal).padding(.vertical, 10)
-                }
                 Picker("View", selection: $section) {
                     Text("Settings").tag(5)
                     Text("Playlists").tag(0)

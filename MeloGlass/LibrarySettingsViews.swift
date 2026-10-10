@@ -203,21 +203,27 @@ struct AppearanceSettingsView: View {
         cacheStatus = failed == 0 ? "Temporary cache cleared. Imported music was not touched." : "Some temporary files are in use and could not be cleared."
     }
     var body: some View {
-        Form {
-                Section {
-                    HStack(spacing: 14) {
-                        Image(systemName: "music.note.house.fill")
-                            .font(.system(size: 29))
-                            .foregroundStyle(.cyan)
-                            .frame(width: 54, height: 54)
-                            .background(.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Personalize Musix").font(.headline)
-                            Text("Appearance, playback, storage and accessibility")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.padding(.vertical, 6)
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Image(systemName: "music.note.house.fill")
+                    .font(.system(size: 29))
+                    .foregroundStyle(.cyan)
+                    .frame(width: 54, height: 54)
+                    .background(.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Personalize Musix").font(.headline)
+                    Text("Appearance, playback, storage and accessibility")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            Form {
                 Section("Now Playing") {
                     Toggle("Smooth artwork transitions", isOn: $artworkTransitions)
                     Text("Fade between album covers when changing songs.")
@@ -328,5 +334,6 @@ struct AppearanceSettingsView: View {
                 }
             }.navigationTitle("Settings")
             .onAppear { cacheBytes = sizeOfFiles(in: FileManager.default.temporaryDirectory); libraryBytes = sizeOfFiles(in: documentsURL) }
+        }
     }
 }

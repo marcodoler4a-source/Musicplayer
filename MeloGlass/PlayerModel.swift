@@ -343,9 +343,7 @@ import ImageIO
                     let optionsRaw = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
                     let mayResume = AVAudioSession.InterruptionOptions(rawValue: optionsRaw).contains(.shouldResume)
                     if self.resumeAfterInterruption && mayResume {
-                        self.configureAudio()
-                        if !self.engine.isRunning { try? self.engine.start() }
-                        if self.engine.isRunning {
+                        if self.startAudioEngineIfNeeded() {
                             self.playerNode.play()
                             if self.transitionStarted { self.transitionNode.play() }
                             self.isPlaying = true
@@ -461,8 +459,8 @@ import ImageIO
                 self.audioLevels = self.isPlaying ? levels : Array(repeating: 0.025, count: 20)
             }
         }
-        do { try engine.start() }
-        catch { userError = "Audio engine could not start: \(error.localizedDescription)"; diagnosticsMessage = "Audio engine startup failed" }
+        // Do not start the engine during app launch: audio routes may not be ready yet.
+        // Playback starts it on demand after the session has been activated.
     }
 
     func add(urls: [URL]) {
@@ -672,6 +670,32 @@ import ImageIO
         }
     }
 
+    @discardableResult
+    private func startAudioEngineIfNeeded() -> Bool {
+        if engine.isRunning { return true }
+        configureAudio()
+        do {
+            try engine.start()
+            diagnosticsMessage = "Audio engine running"
+            return true
+        } catch {
+            // Reset rendering state without rebuilding connections or installing another tap.
+            engine.stop()
+            engine.reset()
+            configureAudio()
+            do {
+                try engine.start()
+                diagnosticsMessage = "Audio engine recovered"
+                return true
+            } catch {
+                isPlaying = false
+                diagnosticsMessage = "Audio engine failed: \(error.localizedDescription)"
+                userError = "Unable to start audio playback: \(error.localizedDescription). Try reconnecting your audio output and reopening Musix."
+                return false
+            }
+        }
+    }
+
     private func schedule(from seconds: Double, autoplay: Bool) {
         guard let file = audioFile else { return }
         let sampleRate = file.processingFormat.sampleRate
@@ -693,18 +717,14 @@ import ImageIO
                 self.advanceAfterCompletion()
             }
         }
-        if !engine.isRunning {
-            configureAudio()
-            do { try engine.start() }
-            catch { isPlaying = false; userError = "Audio engine could not start: \(error.localizedDescription)"; diagnosticsMessage = "Audio engine restart failed"; return }
-        }
+        if autoplay && !startAudioEngineIfNeeded() { return }
         if autoplay { playerNode.play(); isPlaying = true; diagnosticsMessage = "Playing" } else { isPlaying = false }
     }
 
     func toggle() {
         guard audioFile != nil else { if let t = current ?? tracks.first { play(t) }; return }
         if isPlaying { resumeAfterInterruption = false; playerNode.pause(); transitionNode.pause(); isPlaying = false }
-        else { if !engine.isRunning { configureAudio(); try? engine.start() }; playerNode.play(); if transitionStarted { transitionNode.play() }; isPlaying = true }
+        else { guard startAudioEngineIfNeeded() else { return }; playerNode.play(); if transitionStarted { transitionNode.play() }; isPlaying = true }
         publish()
     }
 
