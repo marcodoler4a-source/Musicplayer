@@ -152,7 +152,7 @@ struct MusicInfoResultCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 16)))
         .task(id: item.releaseID) {
             artworkData = await MusicInfoService.artwork(for: item)
             artworkLoaded = true
@@ -250,7 +250,22 @@ struct AppearanceSettingsView: View {
                     Picker("Accent",selection:$accentChoice){ Text("Blue").tag("Blue"); Text("Purple").tag("Purple"); Text("Green").tag("Green"); Text("Pink").tag("Pink") }
                     Toggle("Show album artwork",isOn:$showArtwork)
                     Toggle("Compact library rows",isOn:$compactRows)
-                    HStack { Text("Glass intensity"); Slider(value:$glassIntensity,in:0.2...1) }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Glass intensity")
+                            Spacer()
+                            Text("\(Int(glassIntensity * 100))%")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Slider(value: $glassIntensity, in: 0.2...1)
+                        Text("Changes the tint and transparency of glass panels immediately. iOS material blur strength itself is fixed.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(LinearGradient(colors: [.blue.opacity(0.55), .purple.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(height: 56)
+                            .overlay(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 14)))
+                            .overlay(Text("Live glass preview").font(.subheadline.weight(.semibold)).foregroundStyle(.white))
+                    }
                 }
                 }
                 if visible("Audio") {
@@ -368,5 +383,24 @@ struct AppearanceSettingsView: View {
             }.navigationTitle("Settings")
             .onAppear { cacheBytes = sizeOfFiles(in: FileManager.default.temporaryDirectory); libraryBytes = sizeOfFiles(in: documentsURL) }
         }
+    }
+}
+
+
+// Shared reactive glass treatment. SwiftUI system materials have a fixed blur radius;
+// this layer changes the visible tint/opacity while retaining material blur.
+struct MusixGlassSurface<S: Shape>: View {
+    @AppStorage("glassIntensity") private var intensity = 0.75
+    let shape: S
+    var body: some View {
+        shape
+            .fill(.ultraThinMaterial)
+            .overlay {
+                shape.fill(Color(red: 0.04, green: 0.10, blue: 0.19)
+                    .opacity(0.80 * (1.0 - min(max(intensity, 0.2), 1.0))))
+            }
+            .overlay {
+                shape.stroke(Color.white.opacity(0.04 + 0.17 * intensity), lineWidth: 1)
+            }
     }
 }

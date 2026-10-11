@@ -359,7 +359,7 @@ struct ContentView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)))
                         .padding(.horizontal)
                     }
 
@@ -562,7 +562,7 @@ struct ContentView: View {
                     HStack { Image(systemName: "square.stack.fill").foregroundStyle(accent)
                         Text(genre).font(.headline); Spacer(); Text("\(songs.count) songs").foregroundStyle(.secondary)
                         Image(systemName: "chevron.right")
-                    }.padding(16).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    }.padding(16).background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 16)))
                 }.buttonStyle(.plain)
             }
         }.padding(.horizontal)
@@ -637,7 +637,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: collectionGrid ? 230 : 190, alignment: .top)
                     .padding(10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                    .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 18)))
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
@@ -691,7 +691,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .frame(height: collectionGrid ? 230 : 190, alignment: .top)
                     .padding(10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                    .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 18)))
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
@@ -731,7 +731,7 @@ struct ContentView: View {
             }
         }
         .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 20)))
         .padding(.horizontal)
     }
 
@@ -772,7 +772,7 @@ struct ContentView: View {
                                         .autocorrectionDisabled()
                                 }
                                 .padding(12)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 13))
+                                .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 13)))
                                 .padding(.horizontal)
                                 HStack {
                                     Text("STARRED SONGS").font(.caption.bold()).foregroundStyle(.secondary)
@@ -893,13 +893,13 @@ struct ContentView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.title3)
                     .padding(12)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(MusixGlassSurface(shape: Circle()))
             }
             Button { importing = true } label: {
                 Image(systemName: "plus")
                     .font(.title3)
                     .padding(12)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .background(MusixGlassSurface(shape: Circle()))
             }
             LibraryStableOptionsMenu(
                 selectMode: $selectMode,
@@ -983,7 +983,7 @@ struct ContentView: View {
             }
         }
         .padding(.vertical, 5)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(MusixGlassSurface(shape: Capsule()))
         .shadow(radius: 4)
         .contentShape(Rectangle())
         .simultaneousGesture(
@@ -1053,7 +1053,7 @@ struct ContentView: View {
             }
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 20)))
         .contextMenu {
             Button { p.toggleFavorite(t) } label: {
                 Label(p.isFavorite(t) ? "Remove from Favorites" : "Add to Favorites", systemImage: p.isFavorite(t) ? "star.slash" : "star")
@@ -1129,7 +1129,7 @@ struct ContentView: View {
             )
         }
         .padding(compactRows ? 6 : 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 18)))
         .contentShape(Rectangle())
         .offset(x: revealedSwipeSongID == t.id ? -88 : 0)
         .background(alignment: .trailing) {
@@ -1420,7 +1420,7 @@ struct MiniPlayer: View {
             }
         }
         .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 22)))
         .padding(.horizontal)
     }
 }
@@ -1969,7 +1969,7 @@ private struct LibraryStableOptionsMenu: View {
             Image(systemName: "ellipsis")
                 .font(.title3)
                 .padding(12)
-                .background(.ultraThinMaterial, in: Circle())
+                .background(MusixGlassSurface(shape: Circle()))
                 .contentShape(Circle())
         }
         .accessibilityLabel("Library options")

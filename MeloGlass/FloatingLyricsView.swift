@@ -24,7 +24,7 @@ struct FloatingLyricsView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 13)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(MusixGlassSurface(shape: RoundedRectangle(cornerRadius: 18, style: .continuous)))
             .overlay(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(.white.opacity(0.14), lineWidth: 1)
