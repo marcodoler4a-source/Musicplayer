@@ -50,17 +50,25 @@ struct MusixExtrasView: View {
                         }
                         .buttonStyle(.plain)
                         Spacer()
-                        Text(sectionTitle).font(.headline)
                         Spacer()
-                        Color.clear.frame(width: 50, height: 1)
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
                 }
                 if section == 5 {
                     AppearanceSettingsView()
-                } else {
+                } else if section != -1 {
                 List {
+                    Section {
+                        HStack(spacing: 12) {
+                            Image(systemName: sectionIcon).font(.title2.weight(.semibold)).foregroundStyle(.cyan)
+                                .frame(width: 48, height: 48).background(Color.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(sectionTitle).font(.title2.weight(.bold))
+                                Text(sectionSubtitle).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.padding(.vertical, 6)
+                    }.listRowBackground(Color.clear)
                     if section == 4 {
                         Section("Your Library") {
                             HStack { Label("Songs", systemImage: "music.note"); Spacer(); Text("\(p.tracks.count)") }
@@ -193,6 +201,7 @@ struct MusixExtrasView: View {
                             }
                         }
                     } else {
+                        if section == 6 {
                         Section("Backup and Restore") {
                             Button("Create backup in Files") {
                                 do { let url = try p.exportLibraryBackup(); message = "Backup created: \(url.lastPathComponent). Copy this folder outside the app using Files." }
@@ -204,6 +213,8 @@ struct MusixExtrasView: View {
                             }
                             Text("IMPORTANT: Copy the entire MusixBackup folder to iCloud Drive, a computer, or external storage BEFORE deleting Musix. Deleting the app also deletes backups kept inside its On My iPhone folder. Backups now include custom artist/album covers and Musix settings. To restore, copy the folder back to On My iPhone > Musix first.").font(.caption).foregroundStyle(.secondary)
                         }
+                        }
+                        if section == 7 {
                         Section("Duplicate Song Finder") {
                             Button("Scan for identical audio files") { duplicates = p.duplicateGroups() }
                             if duplicates.isEmpty { Text("No duplicates shown. Run a scan to check.").font(.caption) }
@@ -215,22 +226,22 @@ struct MusixExtrasView: View {
                             }
                             Text("Uses SHA-256 file comparison. Review duplicates before deleting songs in Library.").font(.caption).foregroundStyle(.secondary)
                         }
-                        Section("V99 Playback Preferences") {
-                            Toggle("Animated Album Artwork", isOn: Binding(get: { p.animatedArtwork }, set: { p.setAnimatedArtwork($0) }))
-                            Toggle("Volume Leveling (conservative)", isOn: Binding(get: { p.volumeNormalization }, set: { p.setVolumeNormalization($0) }))
-                            Text("Volume leveling currently reduces output gain to prevent loud tracks from clipping. It does not yet measure per-song loudness.").font(.caption).foregroundStyle(.secondary)
                         }
-                        Section("Now Playing Extras") {
+                        if section == 3 {
+                        Section("Audio Tools") {
                             Button("Open full-screen karaoke lyrics") { showKaraoke = true }
                             Button("Open live audio visualizer") { showVisualizer = true }
-                            Toggle("Expanded mini player", isOn: Binding(get: { p.miniPlayerExpanded }, set: { p.setMiniExpanded($0) }))
+                            Text("Playback and appearance preferences are managed in Settings.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         }
                         if !message.isEmpty { Section("Result") { Text(message) } }
                     }
                 }.listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle("More")
+            .navigationTitle(section == -1 ? "More" : "")
+            .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showKaraoke) { MusixKaraokeView() }
             .sheet(isPresented: $showVisualizer) { MusixAudioVisualizer() }
         }
@@ -241,64 +252,97 @@ struct MusixExtrasView: View {
         case 0: return "Playlists"
         case 1: return "Up Next"
         case 2: return "Musix Replay"
-        case 3: return "Tools & Storage"
+        case 3: return "Karaoke & Visualizer"
         case 4: return "Music Overview"
-        default: return "Settings"
+        case 5: return "Settings"
+        case 6: return "Storage & Backup"
+        case 7: return "Duplicate Finder"
+        default: return "More"
+        }
+    }
+
+    private var sectionIcon: String {
+        switch section {
+        case 0: return "music.note.list"
+        case 1: return "text.line.first.and.arrowtriangle.forward"
+        case 2: return "chart.bar.fill"
+        case 3: return "waveform"
+        case 4: return "square.grid.2x2.fill"
+        case 6: return "externaldrive.fill"
+        case 7: return "doc.on.doc.fill"
+        default: return "gearshape.fill"
+        }
+    }
+
+    private var sectionSubtitle: String {
+        switch section {
+        case 0: return "Your playlists, smart mixes and folders"
+        case 1: return "Manage what plays next"
+        case 2: return "Your listening highlights"
+        case 3: return "Immersive listening experiences"
+        case 4: return "A closer look at your collection"
+        case 6: return "Keep your music safe"
+        case 7: return "Find identical audio files"
+        default: return "Make Musix yours"
         }
     }
 
     private var moreDashboard: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("YOUR MUSIC, YOUR WAY")
-                        .font(.caption2.weight(.bold)).tracking(2)
-                        .foregroundStyle(.cyan)
-                    Text("Music Hub")
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                    Text("Everything beyond your Library, in one place.")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    HStack(spacing: 0) {
-                        hubStat("\(p.tracks.count)", label: "Songs")
-                        Spacer()
-                        hubStat("\(Set(p.tracks.map(\.artist)).count)", label: "Artists")
-                        Spacer()
-                        hubStat("\(p.playlists.count)", label: "Playlists")
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("YOUR MUSIC, YOUR CONTROLS")
+                            .font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(.cyan)
+                        Text("Made for your music")
+                            .font(.title2.weight(.bold))
+                        Text("Everything you need, thoughtfully organized.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    .padding(.top, 13)
+                    Spacer(minLength: 0)
+                    Image(systemName: "music.note")
+                        .font(.title2).foregroundStyle(.cyan)
+                        .frame(width: 52, height: 52)
+                        .background(Color.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
-                .background(
-                    LinearGradient(colors: [Color.blue.opacity(0.23), Color.cyan.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 24)
-                )
+                .padding(18)
+                .background(LinearGradient(colors: [Color.blue.opacity(0.20), Color.cyan.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 20))
 
-                VStack(alignment: .leading, spacing: 12) {
-                    hubHeading("QUICK ACCESS")
-                    HStack(spacing: 12) {
-                        hubTile("Playlists", subtitle: "Your collections", icon: "music.note.list", color: .blue, target: 0)
-                        hubTile("Up Next", subtitle: "Playback queue", icon: "text.line.first.and.arrowtriangle.forward", color: .purple, target: 1)
-                    }
-                    HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    hubHeading("YOUR LISTENING")
+                    HStack(spacing: 11) {
                         hubTile("Musix Replay", subtitle: "Listening insights", icon: "chart.bar.fill", color: .cyan, target: 2)
                         hubTile("Music Overview", subtitle: "Your collection", icon: "square.grid.2x2.fill", color: .indigo, target: 4)
                     }
                 }
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    hubHeading("LIBRARY & PLAYBACK")
+                    VStack(spacing: 0) {
+                        hubRow("Playlists", subtitle: "Your collections and folders", icon: "music.note.list", target: 0)
+                        Divider().padding(.leading, 60)
+                        hubRow("Up Next", subtitle: "Playback queue", icon: "text.line.first.and.arrowtriangle.forward", target: 1)
+                        Divider().padding(.leading, 60)
+                        hubRow("Karaoke & Visualizer", subtitle: "Full-screen music experiences", icon: "waveform", target: 3)
+                    }
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 19))
+                }
+                VStack(alignment: .leading, spacing: 10) {
                     hubHeading("PERSONALIZE & MANAGE")
                     VStack(spacing: 0) {
-                        hubRow("Settings", subtitle: "Appearance, playback and accessibility", icon: "gearshape.fill", target: 5)
-                        Divider().padding(.leading, 52)
-                        hubRow("Tools & Storage", subtitle: "Backup, duplicates and audio tools", icon: "externaldrive.fill", target: 3)
+                        hubRow("Settings", subtitle: "Audio, appearance and playback", icon: "gearshape.fill", target: 5)
+                        Divider().padding(.leading, 60)
+                        hubRow("Storage & Backup", subtitle: "Protect and restore your music", icon: "externaldrive.fill", target: 6)
+                        Divider().padding(.leading, 60)
+                        hubRow("Duplicate Finder", subtitle: "Find identical audio files", icon: "doc.on.doc.fill", target: 7)
                     }
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 19))
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.top, 12)
-            .padding(.bottom, 30)
+            .padding(.top, 14)
+            .padding(.bottom, 34)
         }
+        .background(Color(.systemGroupedBackground))
     }
 
     private func hubStat(_ value: String, label: String) -> some View {
@@ -325,9 +369,9 @@ struct MusixExtrasView: View {
                 Text(title).font(.subheadline.weight(.bold)).foregroundStyle(.primary)
                 Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(maxWidth: .infinity, minHeight: 122, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 105, alignment: .leading)
             .padding(15)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 19))
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 19))
         }
         .buttonStyle(.plain)
     }

@@ -313,6 +313,10 @@ struct AppearanceSettingsView: View {
                 }
                 }
                 if visible("Playback") {
+                Section("Now Playing Extras") {
+                    Toggle("Animated Album Artwork", isOn: Binding(get: { p.animatedArtwork }, set: { p.setAnimatedArtwork($0) }))
+                    Toggle("Expanded mini player", isOn: Binding(get: { p.miniPlayerExpanded }, set: { p.setMiniExpanded($0) }))
+                }
                 Section("Playback Preferences") {
                     Toggle("Resume previous session on launch", isOn: $resumeOnLaunch)
                     Text("When enabled, Musix restores the last song and position without starting playback automatically.")

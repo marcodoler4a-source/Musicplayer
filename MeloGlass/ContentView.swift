@@ -1192,13 +1192,34 @@ struct LibraryMusicSearchView: View {
     @State private var favoritesOnly = false
     @State private var searchScope = "All"
     @State private var yearFilter = "All Years"
+    @State private var confirmClearHistory = false
     @AppStorage("musixRecentSearches") private var recentSearchesData = "[]"
-    private var recentSearches: [String] { (try? JSONDecoder().decode([String].self, from: Data(recentSearchesData.utf8))) ?? [] }
+
+    private let scopes = ["All", "Songs", "Artists", "Albums", "Genres", "Years"]
+    private var recentSearches: [String] {
+        (try? JSONDecoder().decode([String].self, from: Data(recentSearchesData.utf8))) ?? []
+    }
+    private func saveHistory(_ entries: [String]) {
+        if let data = try? JSONEncoder().encode(entries), let text = String(data: data, encoding: .utf8) {
+            recentSearchesData = text
+        }
+    }
     private func rememberSearch() {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        let updated = [value] + Array(recentSearches.filter { $0.caseInsensitiveCompare(value) != .orderedSame }.prefix(9))
-        if let data = try? JSONEncoder().encode(updated), let text = String(data: data, encoding: .utf8) { recentSearchesData = text }
+        saveHistory([value] + Array(recentSearches.filter { $0.caseInsensitiveCompare(value) != .orderedSame }.prefix(19)))
+    }
+    private func removeSearch(_ value: String) {
+        saveHistory(recentSearches.filter { $0 != value })
+    }
+    private var availableYears: [String] {
+        Array(Set(p.tracks.compactMap { track -> String? in
+            let year = String(track.releaseDate.prefix(4))
+            return year.count == 4 && Int(year) != nil ? year : nil
+        })).sorted(by: >)
+    }
+    private var availableGenres: [String] {
+        Array(Set(p.tracks.map(\.genre).filter { !$0.isEmpty })).sorted()
     }
     private var results: [Track] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1214,62 +1235,110 @@ struct LibraryMusicSearchView: View {
             (!favoritesOnly || p.isFavorite(track))
         }
     }
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("Search in", selection: $searchScope) {
-                    ForEach(["All", "Songs", "Artists", "Albums", "Genres", "Years"], id: \.self) { Text($0).tag($0) }
-                }.pickerStyle(.menu).padding(.horizontal)
-                if query.isEmpty && !recentSearches.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack { ForEach(recentSearches, id: \.self) { term in
-                            Button(term) { query = term }.buttonStyle(.bordered)
-                        } }.padding(.horizontal)
-                    }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(scopes, id: \.self) { scope in
+                            Button { searchScope = scope } label: {
+                                Text(scope).font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal, 15).padding(.vertical, 9)
+                                    .background(searchScope == scope ? Color.blue : Color.white.opacity(0.09), in: Capsule())
+                                    .foregroundStyle(.white)
+                            }.buttonStyle(.plain)
+                        }
+                    }.padding(.horizontal, 16).padding(.vertical, 10)
                 }
-                HStack {
-                    Picker("Year", selection: $yearFilter) {
-                        Text("All Years").tag("All Years")
-                        ForEach(Array(Set(p.tracks.compactMap { track -> String? in
-                            let year = String(track.releaseDate.prefix(4))
-                            return year.count == 4 && Int(year) != nil ? year : nil
-                        })).sorted(by: >), id: \.self) { Text($0).tag($0) }
-                    }
-                    Picker("Genre", selection: $genreFilter) {
-                        Text("All Genres").tag("All Genres")
-                        ForEach(Array(Set(p.tracks.map(\.genre).filter { !$0.isEmpty })).sorted(), id: \.self) { genre in
-                            Text(genre).tag(genre)
+                HStack(spacing: 12) {
+                    Menu {
+                        Picker("Year", selection: $yearFilter) {
+                            Text("All Years").tag("All Years")
+                            ForEach(availableYears, id: \.self) { Text($0).tag($0) }
+                        }
+                    } label: { Label(yearFilter, systemImage: "calendar").font(.subheadline) }
+                    Menu {
+                        Picker("Genre", selection: $genreFilter) {
+                            Text("All Genres").tag("All Genres")
+                            ForEach(availableGenres, id: \.self) { Text($0).tag($0) }
+                        }
+                    } label: { Label(genreFilter, systemImage: "slider.horizontal.3").font(.subheadline).lineLimit(1) }
+                    Spacer(minLength: 0)
+                    Button { favoritesOnly.toggle() } label: {
+                        Image(systemName: favoritesOnly ? "star.fill" : "star")
+                            .foregroundStyle(favoritesOnly ? Color.yellow : Color.secondary)
+                            .padding(9).background(Color.white.opacity(0.08), in: Circle())
+                    }.accessibilityLabel("Favorites only")
+                }.padding(.horizontal, 18).padding(.bottom, 8)
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !recentSearches.isEmpty {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Label("Recent Searches", systemImage: "clock.arrow.circlepath")
+                                .font(.headline)
+                            Spacer()
+                            Button("Clear All") { confirmClearHistory = true }
+                                .font(.subheadline).foregroundStyle(.blue)
+                        }.padding(.horizontal, 18).padding(.vertical, 12)
+                        ScrollView {
+                            LazyVStack(spacing: 3) {
+                                ForEach(recentSearches, id: \.self) { term in
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            query = term
+                                            rememberSearch()
+                                        } label: {
+                                            HStack(spacing: 12) {
+                                                Image(systemName: "clock").foregroundStyle(.secondary)
+                                                Text(term).lineLimit(1).foregroundStyle(.primary)
+                                                Spacer()
+                                                Image(systemName: "arrow.up.left").foregroundStyle(.secondary)
+                                            }.contentShape(Rectangle())
+                                        }.buttonStyle(.plain)
+                                        Button { removeSearch(term) } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundStyle(.secondary).font(.title3)
+                                        }.accessibilityLabel("Remove search \(term)")
+                                    }
+                                    .padding(.horizontal, 14).padding(.vertical, 13)
+                                    .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
+                                }
+                            }.padding(.horizontal, 16)
                         }
                     }
-                    Toggle("Favorites", isOn: $favoritesOnly).labelsHidden()
-                    Image(systemName: "star.fill").foregroundStyle(.secondary)
-                }.padding(.horizontal)
+                } else {
+                    HStack {
+                        Text(query.isEmpty ? "Your Music" : "Search Results")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(results.count) songs").font(.caption).foregroundStyle(.secondary)
+                    }.padding(.horizontal, 18).padding(.vertical, 10)
                     List(results) { track in
-                Button {
-                    rememberSearch()
-                    p.play(track, queue: results)
-                    dismiss()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { showPlayer = true }
-                } label: {
-                    HStack(spacing: 12) {
-                        Artwork(data: track.artworkData).frame(width: 52, height: 52)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(track.title).font(.headline).lineLimit(1)
-                            Text(track.artist.isEmpty ? track.url.lastPathComponent : track.artist)
-                                .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
+                        Button {
+                            rememberSearch()
+                            p.play(track, queue: results)
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { showPlayer = true }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Artwork(data: track.artworkData).frame(width: 52, height: 52)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(track.title).font(.headline).lineLimit(1)
+                                    Text(track.artist.isEmpty ? track.url.lastPathComponent : track.artist)
+                                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                        }.buttonStyle(.plain)
+                    }.listStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-            }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your songs")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Songs, artists, albums, genres...")
             .onSubmit(of: .search) { rememberSearch() }
             .navigationTitle("Search Music")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
-            }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .confirmationDialog("Clear all search history?", isPresented: $confirmClearHistory, titleVisibility: .visible) {
+                Button("Clear All Searches", role: .destructive) { saveHistory([]) }
+                Button("Cancel", role: .cancel) { }
+            } message: { Text("This removes saved searches from this device. Your music will not be deleted.") }
         }
         .preferredColorScheme(.dark)
     }
