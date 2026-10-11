@@ -438,113 +438,174 @@ private struct MusixPlaylistDetail: View {
 
 
 struct MusixKaraokeView: View {
-    @EnvironmentObject var p: PlayerModel
+    @EnvironmentObject private var p: PlayerModel
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("musixKaraokeLargeText") private var largeText = false
+
+    private var lyrics: [LyricLine] { p.current?.lyrics ?? [] }
+    private var activeIndex: Int {
+        lyrics.indices.last(where: { lyrics[$0].time <= p.time }) ?? 0
+    }
+    private var totalDuration: Double { max(p.duration, 1) }
 
     var body: some View {
         ZStack {
             SpotifyInspiredBackground(data: p.current?.artworkData)
-            Color.black.opacity(0.16).ignoresSafeArea()
+            Color(red: 0.025, green: 0.045, blue: 0.09).opacity(0.78).ignoresSafeArea()
 
             VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 14) {
+                HStack(spacing: 12) {
                     Button { dismiss() } label: {
                         Image(systemName: "chevron.down")
-                            .font(.title2.weight(.semibold))
-                            .frame(width: 44, height: 44)
+                            .font(.system(size: 19, weight: .semibold))
+                            .frame(width: 42, height: 42)
                     }
-                    Artwork(data: p.current?.artworkData)
-                        .frame(width: 66, height: 66)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(p.current?.title ?? "No song selected")
-                            .font(.headline).lineLimit(2)
-                        Text(p.current?.artist.isEmpty == false ? (p.current?.artist ?? "") : "Unknown Artist")
-                            .font(.subheadline).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
-                        Text(p.current?.album.isEmpty == false ? (p.current?.album ?? "") : "Unknown Album")
-                            .font(.caption).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                    .accessibilityLabel("Close karaoke")
+                    VStack(spacing: 3) {
+                        Text("KARAOKE").font(.caption2.weight(.bold)).tracking(2.4)
+                        Text("Sing along").font(.caption).foregroundStyle(.white.opacity(0.58))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    Button { largeText.toggle() } label: {
+                        Image(systemName: largeText ? "textformat.size.smaller" : "textformat.size.larger")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 42, height: 42)
+                    }
+                    .accessibilityLabel(largeText ? "Smaller lyrics" : "Larger lyrics")
                 }
                 .foregroundStyle(.white)
-                .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
                 .padding(.horizontal, 18)
-                .padding(.top, 14)
+                .padding(.top, 12)
+
+                HStack(spacing: 12) {
+                    Artwork(data: p.current?.artworkData)
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(p.current?.title ?? "No song selected")
+                            .font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Text(p.current?.artist.isEmpty == false ? (p.current?.artist ?? "") : "Unknown Artist")
+                            .font(.caption).foregroundStyle(.white.opacity(0.60)).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "waveform")
+                        .foregroundStyle(Color(red: 0.45, green: 0.75, blue: 1))
+                }
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 18)
+                .padding(.top, 15)
 
                 ScrollViewReader { proxy in
                     ScrollView {
-                        if p.current?.lyrics.isEmpty != false {
-                            VStack(spacing: 12) {
-                                Image(systemName: "music.mic").font(.system(size: 36))
-                                Text("No synchronized lyrics yet")
-                                    .font(.title3.weight(.semibold))
-                                Text("Import an LRC file or search for synced lyrics from Now Playing.")
-                                    .font(.subheadline).multilineTextAlignment(.center)
+                        if lyrics.isEmpty {
+                            VStack(spacing: 14) {
+                                Image(systemName: "music.mic")
+                                    .font(.system(size: 38))
+                                    .foregroundStyle(Color(red: 0.45, green: 0.75, blue: 1))
+                                Text("Lyrics not available")
+                                    .font(.title3.weight(.bold))
+                                Text("Import an LRC file or find synchronized lyrics from Now Playing.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.62))
+                                    .multilineTextAlignment(.center)
                             }
-                            .foregroundStyle(.white.opacity(0.85))
                             .frame(maxWidth: .infinity)
-                            .padding(.top, 90)
                             .padding(.horizontal, 24)
+                            .padding(.top, 100)
                         } else {
-                            LazyVStack(alignment: .leading, spacing: 22) {
-                                ForEach(Array((p.current?.lyrics ?? []).enumerated()), id: \.offset) { index, line in
-                                    let lines = p.current?.lyrics ?? []
-                                    let active = p.time >= line.time && (index + 1 >= lines.count || p.time < lines[index + 1].time)
+                            LazyVStack(spacing: 24) {
+                                ForEach(Array(lyrics.enumerated()), id: \.offset) { index, line in
+                                    let isActive = index == activeIndex
                                     Button { p.seek(line.time) } label: {
-                                        Text(line.text)
-                                            .font(.system(size: active ? 31 : 25, weight: active ? .bold : .medium))
-                                            .foregroundStyle(active ? Color.white : Color.white.opacity(0.48))
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .multilineTextAlignment(.leading)
-                                            .padding(.vertical, 3)
+                                        Text(line.text.isEmpty ? "♪" : line.text)
+                                            .font(.system(size: largeText ? (isActive ? 35 : 28) : (isActive ? 29 : 23), weight: isActive ? .bold : .medium, design: .rounded))
+                                            .foregroundStyle(isActive ? Color.white : Color.white.opacity(0.37))
+                                            .multilineTextAlignment(.center)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, isActive ? 12 : 4)
+                                            .padding(.horizontal, 12)
+                                            .background(isActive ? Color.blue.opacity(0.22) : Color.clear, in: RoundedRectangle(cornerRadius: 16))
+                                            .shadow(color: isActive ? Color.blue.opacity(0.38) : .clear, radius: 15)
                                     }
                                     .buttonStyle(.plain)
+                                    .accessibilityLabel("Seek to lyric: \(line.text)")
                                     .id(index)
                                 }
                             }
-                            .padding(.horizontal, 28)
-                            .padding(.vertical, 38)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 125)
                         }
                     }
-                    .onChange(of: Int(p.time)) { _ in
-                        let lines = p.current?.lyrics ?? []
-                        if let i = lines.indices.last(where: { lines[$0].time <= p.time }) {
-                            withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(i, anchor: .center) }
+                    .scrollIndicators(.hidden)
+                    .onChange(of: activeIndex) { index in
+                        guard !lyrics.isEmpty else { return }
+                        withAnimation(.easeInOut(duration: 0.38)) {
+                            proxy.scrollTo(index, anchor: .center)
                         }
+                    }
+                    .onAppear {
+                        if !lyrics.isEmpty { proxy.scrollTo(activeIndex, anchor: .center) }
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                HStack(spacing: 48) {
-                    Button { p.previous() } label: { Image(systemName: "backward.end.fill") }
-                    Button { p.toggle() } label: {
-                        Image(systemName: p.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 56))
+                VStack(spacing: 13) {
+                    Slider(value: Binding(
+                        get: { min(max(p.time, 0), totalDuration) },
+                        set: { p.seek($0) }
+                    ), in: 0...totalDuration)
+                    .tint(Color(red: 0.42, green: 0.72, blue: 1))
+                    .accessibilityLabel("Song position")
+                    HStack {
+                        Text(timeString(p.time))
+                        Spacer()
+                        Text(timeString(p.duration))
                     }
-                    Button { p.next() } label: { Image(systemName: "forward.end.fill") }
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.56))
+                    .padding(.top, -8)
+
+                    HStack(spacing: 46) {
+                        Button { p.previous() } label: {
+                            Image(systemName: "backward.end.fill").font(.title2)
+                        }
+                        .accessibilityLabel("Previous song")
+                        Button { p.toggle() } label: {
+                            Image(systemName: p.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 23, weight: .bold))
+                                .frame(width: 60, height: 60)
+                                .background(Color(red: 0.26, green: 0.56, blue: 0.95), in: Circle())
+                        }
+                        .accessibilityLabel(p.isPlaying ? "Pause" : "Play")
+                        Button { p.next() } label: {
+                            Image(systemName: "forward.end.fill").font(.title2)
+                        }
+                        .accessibilityLabel("Next song")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .font(.title2)
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
-                .padding(.horizontal, 18)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 25)
+                .padding(.top, 14)
+                .padding(.bottom, 18)
+                .background(Color(red: 0.055, green: 0.09, blue: 0.16).opacity(0.96), in: RoundedRectangle(cornerRadius: 22))
             }
         }
         .preferredColorScheme(.dark)
-        // A downward swipe starting in the header dismisses karaoke.
-        // Restricting the start area preserves scrolling and lyric-tap seeking.
         .simultaneousGesture(
-            DragGesture(minimumDistance: 35)
-                .onEnded { gesture in
-                    if gesture.startLocation.y < 150 &&
-                        gesture.translation.height > 85 &&
-                        abs(gesture.translation.width) < gesture.translation.height {
-                        dismiss()
-                    }
-                }
+            DragGesture(minimumDistance: 35).onEnded { gesture in
+                if gesture.startLocation.y < 100 && gesture.translation.height > 85 &&
+                    abs(gesture.translation.width) < gesture.translation.height { dismiss() }
+            }
         )
+    }
+
+    private func timeString(_ seconds: Double) -> String {
+        guard seconds.isFinite else { return "0:00" }
+        let value = max(0, Int(seconds))
+        return String(format: "%d:%02d", value / 60, value % 60)
     }
 }
 
