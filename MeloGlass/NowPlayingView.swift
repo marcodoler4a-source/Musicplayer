@@ -84,15 +84,9 @@ struct NowPlayingView: View {
         .sheet(isPresented: $showLyrics) { FullLyricsView().environmentObject(p) }
         .fullScreenCover(isPresented: $showKaraoke) { MusixKaraokeView().environmentObject(p) }
         .sheet(isPresented: $showSettings) { PlayerSettingsView(showLyricSearch: $showLyricSearch, showLRCImporter: $showLRCImporter).environmentObject(p) }
-        .confirmationDialog("Sleep Timer", isPresented: $showSleepTimer, titleVisibility: .visible) {
-            ForEach([0, 5, 10, 15, 20, 30, 45, 60, 90, 120], id: \.self) { minutes in
-                Button((p.sleepMinutes == minutes ? "✓ " : "") + (minutes == 0 ? "Off" : "\(minutes) minutes")) {
-                    p.setSleep(minutes)
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text(p.sleepMinutes > 0 ? "Currently set to \(p.sleepMinutes) minutes" : "Choose when playback should stop")
+        .sheet(isPresented: $showSleepTimer) {
+            MusixSleepTimerSheet().environmentObject(p)
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showQueue) { MusixQueueSheet().environmentObject(p) }
         .sheet(isPresented: $showTagEditor) { if let track=p.current { EditAudioTagView(track:track).environmentObject(p) } }
@@ -389,6 +383,7 @@ struct EditAudioTagView: View {
     @State private var artworkData: Data?
     @State private var lyricsText: String
     @State private var showArtworkImporter = false
+    @State private var artworkImportError: String?
     @State private var showMusicInfoSearch = false
     @State private var showLyricSearch = false
     @State private var showLRCImporter = false
@@ -482,11 +477,27 @@ struct EditAudioTagView: View {
                 }
             }
             .navigationTitle("Edit Audio Tag")
-            .fileImporter(isPresented: $showArtworkImporter, allowedContentTypes: [.image], allowsMultipleSelection: false) { result in
-                guard case .success(let urls) = result, let url = urls.first else { return }
-                let access = url.startAccessingSecurityScopedResource()
-                defer { if access { url.stopAccessingSecurityScopedResource() } }
-                if let data = try? Data(contentsOf: url), UIImage(data: data) != nil { artworkData = data }
+            .sheet(isPresented: $showArtworkImporter) {
+                AlbumArtworkFilePicker { result in
+                    showArtworkImporter = false
+                    switch result {
+                    case .success(let data):
+                        artworkData = data
+                    case .failure(let error):
+                        artworkImportError = error.localizedDescription
+                    }
+                } onCancel: {
+                    showArtworkImporter = false
+                }
+                .ignoresSafeArea()
+            }
+            .alert("Unable to Load Album Cover", isPresented: Binding(
+                get: { artworkImportError != nil },
+                set: { if !$0 { artworkImportError = nil } }
+            )) {
+                Button("OK", role: .cancel) { artworkImportError = nil }
+            } message: {
+                Text(artworkImportError ?? "Please select a supported image file.")
             }
             .sheet(isPresented: $showMusicInfoSearch, onDismiss: reloadFromCurrentTrack) {
                 MusicInfoSearchView(target: p.tracks.first(where: { $0.id == track.id }) ?? track).environmentObject(p)
@@ -627,6 +638,53 @@ struct FullLyricsView: View {
         guard let lines = p.current?.lyrics, let index = lines.firstIndex(of: line) else { return false }
         let next = index + 1 < lines.count ? lines[index + 1].time : Double.greatestFiniteMagnitude
         return line.time <= p.time && p.time < next
+    }
+}
+
+// MARK: - Album artwork file picker
+// Import a copy of the selected image instead of retaining a temporary Files URL.
+private struct AlbumArtworkFilePicker: UIViewControllerRepresentable {
+    let onPick: (Result<Data, Error>) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (Result<Data, Error>) -> Void
+        let onCancel: () -> Void
+
+        init(onPick: @escaping (Result<Data, Error>) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { onCancel(); return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                guard let image = UIImage(data: data),
+                      let normalized = image.jpegData(compressionQuality: 0.9) else {
+                    throw NSError(domain: "MusixArtwork", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "The selected file is not a readable image."])
+                }
+                onPick(.success(normalized))
+            } catch {
+                onPick(.failure(error))
+            }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
     }
 }
 
