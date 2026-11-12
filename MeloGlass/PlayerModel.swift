@@ -15,6 +15,7 @@ import ImageIO
     @Published var repeatMode: RepeatMode = .off
     @Published var speed: Float = 1
     @Published var sleepMinutes = 0
+    @Published private(set) var sleepDeadline: Date?
     @Published var floatingLyrics = false
     @Published var lyricSearchResults: [LRCLIBTrack] = []
     @Published var lyricsSearching = false
@@ -831,12 +832,17 @@ import ImageIO
 
     func setRate(_ r: Float) { speed = r; timePitch.rate = r }
     func setSleep(_ mins: Int) {
-        sleepMinutes = mins; sleepTimer?.invalidate(); guard mins > 0 else { return }
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepMinutes = max(0, mins)
+        sleepDeadline = mins > 0 ? Date().addingTimeInterval(Double(mins) * 60) : nil
+        guard mins > 0 else { return }
         sleepTimer = Timer.scheduledTimer(withTimeInterval: Double(mins * 60), repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 if self.isPlaying { self.toggle() }
                 self.sleepMinutes = 0
+                self.sleepDeadline = nil
                 self.sleepTimer = nil
             }
         }
@@ -1136,10 +1142,18 @@ import CryptoKit
         saveExtras()
     }
 
-    func duplicateGroups() -> [[Track]] {
+    // Compare actual file bytes, not filenames or editable audio metadata.
+    func scanIdenticalAudioFiles() -> (groups: [[Track]], checked: Int, total: Int, unreadable: Int) {
         var groups: [String: [Track]] = [:]
+        var checked = 0
+        var unreadable = 0
         for track in tracks {
-            guard let handle = try? FileHandle(forReadingFrom: track.url) else { continue }
+            let access = track.url.startAccessingSecurityScopedResource()
+            defer { if access { track.url.stopAccessingSecurityScopedResource() } }
+            guard let handle = try? FileHandle(forReadingFrom: track.url) else {
+                unreadable += 1
+                continue
+            }
             var hasher = SHA256()
             while true {
                 let chunk = handle.readData(ofLength: 1024 * 1024)
@@ -1147,9 +1161,17 @@ import CryptoKit
                 hasher.update(data: chunk)
             }
             try? handle.close()
+            checked += 1
             let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
             groups[digest, default: []].append(track)
         }
-        return groups.values.filter { $0.count > 1 }.sorted { $0.count > $1.count }
+        let matches = groups.values.filter { $0.count > 1 }
+            .sorted { $0.count == $1.count ? ($0.first?.title ?? "") < ($1.first?.title ?? "") : $0.count > $1.count }
+        return (matches, checked, tracks.count, unreadable)
     }
+
+    func duplicateGroups() -> [[Track]] {
+        scanIdenticalAudioFiles().groups
+    }
+
 }

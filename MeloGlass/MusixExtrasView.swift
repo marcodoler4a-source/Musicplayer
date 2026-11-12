@@ -28,6 +28,8 @@ struct MusixExtrasView: View {
     @State private var section = -1
     @State private var message = ""
     @State private var duplicates: [[Track]] = []
+    @State private var duplicateScanStatus = "Not scanned yet"
+    @State private var duplicateScanRunning = false
     @State private var showKaraoke = false
     @State private var showVisualizer = false
     @State private var replayYear = Calendar.current.component(.year, from: Date())
@@ -216,8 +218,26 @@ struct MusixExtrasView: View {
                         }
                         if section == 7 {
                         Section("Duplicate Song Finder") {
-                            Button("Scan for identical audio files") { duplicates = p.duplicateGroups() }
-                            if duplicates.isEmpty { Text("No duplicates shown. Run a scan to check.").font(.caption) }
+                            Button(duplicateScanRunning ? "Scanning audio files…" : "Scan for identical audio files") {
+                                duplicateScanRunning = true
+                                duplicateScanStatus = "Scanning \(p.tracks.count) songs…"
+                                duplicates = []
+                                // Allow SwiftUI to draw the scanning state before hashing files.
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    let result = p.scanIdenticalAudioFiles()
+                                    duplicates = result.groups
+                                    let copies = result.groups.reduce(0) { $0 + $1.count }
+                                    duplicateScanStatus = "Checked \(result.checked) of \(result.total) songs. Found \(result.groups.count) duplicate groups (\(copies) files)." + (result.unreadable > 0 ? " \(result.unreadable) files could not be read." : "")
+                                    duplicateScanRunning = false
+                                }
+                            }
+                            .disabled(duplicateScanRunning)
+                            if duplicateScanRunning { ProgressView("Checking audio files…") }
+                            Text(duplicateScanStatus).font(.caption).foregroundStyle(.secondary)
+                            if !duplicateScanRunning && duplicates.isEmpty && duplicateScanStatus.hasPrefix("Checked") {
+                                Text("No byte-for-byte identical audio files found.").font(.caption)
+                            }
                             ForEach(Array(duplicates.enumerated()), id: \.offset) { _, group in
                                 VStack(alignment: .leading) {
                                     Text("\(group.count) identical copies").font(.headline)
