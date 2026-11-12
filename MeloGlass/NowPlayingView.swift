@@ -40,6 +40,12 @@ struct NowPlayingView: View {
 
                     VStack(spacing: 0) {
                         topBar
+                        if p.sleepDeadline != nil {
+                            MusixSleepCountdownBadge { showSleepTimer = true }
+                                .environmentObject(p)
+                                .padding(.top, 6)
+                                .padding(.bottom, 8)
+                        }
                         artwork(maxWidth: artworkSize)
                         trackDetails
                             .padding(.bottom, 8)

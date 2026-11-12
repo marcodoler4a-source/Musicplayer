@@ -129,6 +129,15 @@ struct ContentView: View {
             }
             .tint(accent)
 
+            // Persistent countdown: stays visible after the timer sheet closes.
+            if p.sleepDeadline != nil && tab != 5 {
+                MusixSleepCountdownBadge { showSleepTimer = true }
+                    .environmentObject(p)
+                    .padding(.bottom, p.current != nil && showMiniPlayer ? 124 : 66)
+                    .frame(maxWidth: .infinity)
+                    .zIndex(2)
+            }
+
             if p.current != nil && showMiniPlayer && tab != 5 {
                 MiniPlayer()
                     .onTapGesture { showPlayer = true }
@@ -139,15 +148,9 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $showPlayer) {
             NowPlayingView().environmentObject(p)
         }
-        .confirmationDialog("Sleep Timer", isPresented: $showSleepTimer, titleVisibility: .visible) {
-            ForEach([0, 5, 10, 15, 20, 30, 45, 60, 90, 120], id: \.self) { minutes in
-                Button((p.sleepMinutes == minutes ? "✓ " : "") + (minutes == 0 ? "Off" : "\(minutes) minutes")) {
-                    p.setSleep(minutes)
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text(p.sleepMinutes > 0 ? "Currently set to \(p.sleepMinutes) minutes" : "Choose when playback should stop")
+        .sheet(isPresented: $showSleepTimer) {
+            MusixSleepTimerSheet().environmentObject(p)
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showQueue) { MusixQueueSheet().environmentObject(p) }
         .confirmationDialog("Song Options", isPresented: Binding(
@@ -1500,36 +1503,84 @@ private struct LibraryScrollOffsetKey: PreferenceKey {
     }
 }
 
+// Live, persistent countdown shared by the Library and Now Playing screens.
+struct MusixSleepCountdownBadge: View {
+    @EnvironmentObject var p: PlayerModel
+    var onTap: () -> Void
+
+    var body: some View {
+        if let deadline = p.sleepDeadline {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let seconds = max(0, Int(ceil(deadline.timeIntervalSince(context.date))))
+                Button(action: onTap) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "moon.zzz.fill")
+                        Text("Sleep")
+                        Text(String(format: "%02d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60))
+                            .monospacedDigit()
+                    }
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 10)
+                    .background(.black.opacity(0.85), in: Capsule())
+                    .overlay(Capsule().stroke(Color.cyan.opacity(0.6), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Sleep timer, \(seconds) seconds remaining. Tap to manage.")
+            }
+        }
+    }
+}
+
 // V88: Shared sleep timer and queue controls for Library and Now Playing.
 struct MusixSleepTimerSheet: View {
     @EnvironmentObject var p: PlayerModel
     @Environment(\.dismiss) private var dismiss
-    private let choices = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120]
+    private let choices = [5, 10, 15, 20, 30, 45, 60, 90, 120]
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
             HStack {
                 Image(systemName: "moon.zzz.fill").foregroundStyle(.cyan)
                 Text("Sleep Timer").font(.title3.bold())
                 Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary) }
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
+                }
             }
-            Text(p.sleepMinutes > 0 ? "Music will pause after \(p.sleepMinutes) minutes." : "Choose when Musix should stop playing.")
-                .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            if let deadline = p.sleepDeadline {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let remaining = max(0, Int(ceil(deadline.timeIntervalSince(context.date))))
+                    VStack(spacing: 5) {
+                        Text(String(format: "%02d:%02d:%02d", remaining / 3600, (remaining % 3600) / 60, remaining % 60))
+                            .font(.system(size: 42, weight: .bold, design: .monospaced))
+                            .monospacedDigit().foregroundStyle(.cyan)
+                        Text("Remaining until music pauses")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                Button(role: .destructive) { p.setSleep(0) } label: {
+                    Label("Cancel Sleep Timer", systemImage: "xmark.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Text("Select how long music should play before pausing.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             ScrollView {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     ForEach(choices, id: \.self) { minutes in
                         Button {
                             p.setSleep(minutes)
-                            dismiss()
                         } label: {
-                            HStack(spacing: 6) {
-                                Text(minutes == 0 ? "Off" : "\(minutes) min")
-                                if p.sleepMinutes == minutes { Image(systemName: "checkmark.circle.fill") }
-                            }
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 42)
-                            .background(p.sleepMinutes == minutes ? Color.cyan.opacity(0.22) : Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+                            Text("\(minutes) min")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 42)
+                                .background(Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1538,7 +1589,6 @@ struct MusixSleepTimerSheet: View {
         }
         .padding(22)
         .preferredColorScheme(.dark)
-        .background(Color.clear)
     }
 }
 
